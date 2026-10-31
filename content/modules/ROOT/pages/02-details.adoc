@@ -4,36 +4,55 @@
 == What you need
 
 |===
-| If you are… | You need
+| Role | Requirement
 
 | Every participant
-| The Showroom terminal tab (`oc` is already logged in) and the OpenShift
-Console tab.
+| An OpenShift user account and password (provided in your RHDP order email).
 
-| CHANGE-ME
-| CHANGE-ME
+| Every participant
+| A browser with access to the OpenShift Console (link in your RHDP order).
 |===
 
 Provided by the facilitator:
 
-* An OpenShift cluster with the lab deployed through OpenShift GitOps.
-* CHANGE-ME
+* A shared OpenShift cluster with the SPIRE stack deployed via OpenShift GitOps.
+* One OpenShift user account per participant (`user1` through `user10`).
+* The SPIRE trust domain and cluster domain (printed on this Showroom page).
+
+[NOTE]
+====
+This lab uses the OpenShift Web Terminal for all CLI commands.
+There is no built-in Showroom terminal — you will open one inside the OpenShift Console.
+====
+
+== Open your terminal
+
+. Log in to the OpenShift Console using the URL and credentials in your RHDP order.
+. In the top navigation bar, click the *>_* (Web Terminal) icon.
+. If prompted to select a project, enter `default`.
++
+Expected result: A terminal panel opens at the bottom of the console window. // UNVERIFIED
 
 == Run the pre-flight check
 
-Run these in the Showroom terminal:
+Paste these lines into your Web Terminal to set your personal namespace and verify access:
 
-[source,bash,role="execute",subs="attributes+"]
+[source,bash]
 ----
-oc whoami
-oc get namespace {lab_namespace}
-oc auth can-i CHANGE-ME -n {lab_namespace}
+NS=$(oc whoami)-spire-lab
+echo "Your namespace: $NS"
+oc get namespace "$NS"
+oc auth can-i get pods -n "$NS"
+oc auth can-i get pods -n {spire_operator_ns}
 ----
 
-Expected result: `oc whoami` prints
-`system:serviceaccount:{showroom_namespace}:showroom`, the namespace is
-`Active`, and every `auth can-i` line prints `yes`.
-// UNVERIFIED
+Expected result: `echo` prints `Your namespace: userN-spire-lab`; the namespace is `Active`; both `auth can-i` lines print `yes`. // UNVERIFIED
+
+[IMPORTANT]
+====
+Every command in this lab uses the `$NS` variable for your personal namespace.
+Re-run `NS=$(oc whoami)-spire-lab` if you open a new terminal tab.
+====
 
 == Access details
 
@@ -41,11 +60,14 @@ Expected result: `oc whoami` prints
 |===
 | Setting | Value
 
-| Lab namespace
+| Your personal namespace
+| `$(oc whoami)-spire-lab` (derived at login)
+
+| Shared SPIRE components namespace
 | `{lab_namespace}`
 
 | OpenShift Console
 | link:https://console-openshift-console.{cluster_domain}[console-openshift-console.{cluster_domain}^]
 |===
 
-Proceed to xref:03-module-01-CHANGE-ME.adoc[Module 1: CHANGE-ME].
+Proceed to xref:03-module-01-spire-deployment.adoc[Module 1: Exploring the SPIRE Deployment].

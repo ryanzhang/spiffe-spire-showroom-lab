@@ -17,6 +17,9 @@ asciidoc:
     # Lab attributes
     spire_operator_ns: 'zero-trust-workload-identity-manager'
     spire_server_ns: 'zero-trust-workload-identity-manager'
+    # Shared SPIRE components namespace (operator, server, agents).
+    lab_namespace: 'zero-trust-workload-identity-manager'
+    # Per-user namespace suffix: each participant's namespace is $(oc whoami)-{lab_ns_suffix}
     lab_ns_suffix: 'spire-lab'
     showroom_namespace: 'showroom'
     trust_domain: 'cluster.local'
