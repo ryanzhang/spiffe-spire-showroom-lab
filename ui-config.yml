@@ -9,5 +9,8 @@ view_switcher:
   default_mode: split
 
 tabs:
-  - name: OpenShift Console
-    url: 'https://console-openshift-console.${DOMAIN}'
+  # OpenShift Console cannot be embedded as an iframe on a pre-existing cluster
+  # (X-Frame-Options: DENY). Access the console via the link in the guide pages.
+  # On an RHDP order with ocp4_workload_ocp_console_embed, re-add:
+  # - name: OpenShift Console
+  #   url: 'https://console-openshift-console.${DOMAIN}'
