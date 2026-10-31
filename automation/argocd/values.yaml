@@ -21,7 +21,10 @@ operatorSpire:
   enabled: true
 
 operatorWebTerminal:
-  enabled: true
+  # Disabled: openshift-operators is a system namespace; bootstrap refuses to
+  # label it as lab-owned. Install Web Terminal manually as a facilitator prereq
+  # before class: oc apply -f automation/facilitator-prereqs/web-terminal.yaml
+  enabled: false
 
 showroom:
   enabled: true

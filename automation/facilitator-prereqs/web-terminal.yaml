@@ -1,0 +1,15 @@
+# Run once as cluster-admin before class: oc apply -f automation/facilitator-prereqs/web-terminal.yaml
+# This installs the Web Terminal Operator (AllNamespaces) so participants can
+# use the >_ icon in the OpenShift Console to run oc commands.
+# openshift-operators carries a global OperatorGroup; no OperatorGroup needed here.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: web-terminal
+  namespace: openshift-operators
+spec:
+  channel: fast
+  installPlanApproval: Automatic
+  name: web-terminal
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
