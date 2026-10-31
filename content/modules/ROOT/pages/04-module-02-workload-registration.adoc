@@ -250,7 +250,7 @@ spec:
       readOnly: true
   containers:
   - name: demo
-    image: registry.redhat.io/ubi9/ubi-minimal:latest
+    image: registry.redhat.io/ubi9/ubi:latest
     command: ["sleep", "infinity"]
     volumeMounts:
     - name: spiffe-certs
