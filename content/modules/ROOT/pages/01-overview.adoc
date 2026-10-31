@@ -51,8 +51,8 @@
 | 将 SPIRE Agent 的 Workload API *socket*（`spire-agent.sock`）挂载到 Pod volume，供 SPIFFE-aware 应用直接调用。**不写入**证书文件——证书文件由 spiffe-helper 负责写入。
 
 | 应用层
-| spiffe-helper-rhel9（Red Hat 官方支持）
-| *Sidecar + Init container — 运行在业务 Pod 内*&#xa;镜像：`registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1`&#xa;GA since OCP 4.22，官方文档 § 12.9
+| spiffe-helper（Red Hat 官方支持 GA OCP 4.22+）
+| *Sidecar + Init container — 运行在业务 Pod 内*&#xa;RH 支持镜像：`registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9`&#xa;本实验使用上游公开镜像：`ghcr.io/spiffe/spiffe-helper:0.8.0`
 | 以 Pod 自身身份调用 Workload API，将 X.509-SVID 写入共享 emptyDir（Memory tmpfs）：`svid.pem`、`svid.key`、`svid_bundle.pem`；Sidecar 持续监听，原地轮换，主应用无感知
 |===
 

@@ -10,7 +10,10 @@
 *企业支持声明*：本模块使用的所有组件均为 Red Hat 官方支持的 GA 产品（OCP 4.22+）：
 
 * *Zero Trust Workload Identity Manager Operator*（OperatorHub，`redhat-operators`）— 管理 SPIRE 生命周期
-* *spiffe-helper-rhel9*（`registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9`）— 为非 SPIFFE-aware 应用写入证书文件
+* *spiffe-helper*（Red Hat 官方支持镜像，需要有效的 Red Hat 订阅）：
+  `registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:<version>`
+
+本实验使用 *上游公开镜像*（`ghcr.io/spiffe/spiffe-helper:0.8.0`）进行演示，行为与 Red Hat 支持镜像完全相同（Red Hat 镜像基于相同上游代码构建）。生产环境建议使用 Red Hat 支持镜像以获得完整的企业支持。
 
 官方文档：link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/security_and_compliance/zero-trust-workload-identity-manager[OCP 4.22 安全与合规 § 12.9^]
 ====
@@ -234,7 +237,7 @@ spec:
   serviceAccountName: spiffe-demo-sa
   initContainers:
   - name: spiffe-helper-init
-    image: registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
     args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
     volumeMounts:
     - name: spiffe-workload-api
@@ -254,7 +257,7 @@ spec:
       mountPath: /opt/spiffe-certs
       readOnly: true
   - name: spiffe-helper
-    image: registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
     args: ['-config', '/etc/spiffe-helper/helper.conf']
     volumeMounts:
     - name: spiffe-workload-api
