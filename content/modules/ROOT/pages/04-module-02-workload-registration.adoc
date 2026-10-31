@@ -217,7 +217,7 @@ spiffe-helper 通过 `-config` 参数读取 `.conf` 文件。使用 ConfigMap �
 
 // UNVERIFIED — 替换 <version> 为 1.1
 
-部署带有 spiffe-helper 的测试 Pod，同时创建 ServiceAccount：
+部署带有 spiffe-helper 的工作负载，同时创建 ServiceAccount：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -227,77 +227,84 @@ kind: ServiceAccount
 metadata:
   name: spiffe-demo-sa
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: spiffe-demo
-  labels:
-    app: spiffe-demo
 spec:
-  serviceAccountName: spiffe-demo-sa
-  initContainers:
-  - name: spiffe-helper-init
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
-    volumeMounts:
-    - name: spiffe-workload-api
-      mountPath: /spiffe-workload-api
-      readOnly: true
-    - name: spiffe-certs
-      mountPath: /opt/spiffe-certs
-    - name: spiffe-helper-config
-      mountPath: /etc/spiffe-helper
-      readOnly: true
-  containers:
-  - name: demo
-    image: registry.redhat.io/ubi9/ubi:latest
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - name: spiffe-certs
-      mountPath: /opt/spiffe-certs
-      readOnly: true
-  - name: spiffe-helper
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf']
-    volumeMounts:
-    - name: spiffe-workload-api
-      mountPath: /spiffe-workload-api
-      readOnly: true
-    - name: spiffe-certs
-      mountPath: /opt/spiffe-certs
-    - name: spiffe-helper-config
-      mountPath: /etc/spiffe-helper
-      readOnly: true
-  volumes:
-  - name: spiffe-workload-api
-    csi:
-      driver: csi.spiffe.io
-      readOnly: true
-  - name: spiffe-certs
-    emptyDir:
-      medium: Memory
-  - name: spiffe-helper-config
-    configMap:
-      name: spiffe-helper-config
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spiffe-demo
+  template:
+    metadata:
+      labels:
+        app: spiffe-demo
+    spec:
+      serviceAccountName: spiffe-demo-sa
+      initContainers:
+      - name: spiffe-helper-init
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+        volumeMounts:
+        - name: spiffe-workload-api
+          mountPath: /spiffe-workload-api
+          readOnly: true
+        - name: spiffe-certs
+          mountPath: /opt/spiffe-certs
+        - name: spiffe-helper-config
+          mountPath: /etc/spiffe-helper
+          readOnly: true
+      containers:
+      - name: demo
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - name: spiffe-certs
+          mountPath: /opt/spiffe-certs
+          readOnly: true
+      - name: spiffe-helper
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf']
+        volumeMounts:
+        - name: spiffe-workload-api
+          mountPath: /spiffe-workload-api
+          readOnly: true
+        - name: spiffe-certs
+          mountPath: /opt/spiffe-certs
+        - name: spiffe-helper-config
+          mountPath: /etc/spiffe-helper
+          readOnly: true
+      volumes:
+      - name: spiffe-workload-api
+        csi:
+          driver: csi.spiffe.io
+          readOnly: true
+      - name: spiffe-certs
+        emptyDir:
+          medium: Memory
+      - name: spiffe-helper-config
+        configMap:
+          name: spiffe-helper-config
 EOF
 ----
 
-Expected result：`serviceaccount/spiffe-demo-sa created` 和 `pod/spiffe-demo created`。// UNVERIFIED
+Expected result：`serviceaccount/spiffe-demo-sa unchanged` 和 `deployment.apps/spiffe-demo created`。// UNVERIFIED
 
-等待 Pod 就绪（init container 完成、sidecar 启动）：
+等待 Deployment 就绪（init container 完成、sidecar 启动）：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc wait pod spiffe-demo -n "$NS" --for=condition=Ready --timeout=60s
+oc rollout status deploy/spiffe-demo -n "$NS" --timeout=120s
 ----
 
-Expected result：`pod/spiffe-demo condition met`。// UNVERIFIED
+Expected result：`deployment "spiffe-demo" successfully rolled out`。// UNVERIFIED
 
 == 练习 5：验证 SVID 文件已写入
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" spiffe-demo -c demo -- ls -la /opt/spiffe-certs/
+oc exec -n "$NS" deploy/spiffe-demo -c demo -- ls -la /opt/spiffe-certs/
 ----
 
 Expected result：
@@ -314,7 +321,7 @@ In short: 证书来自 SPIRE，身份来自 Kubernetes 工作负载元数据—�
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" spiffe-demo -c demo -- \
+oc exec -n "$NS" deploy/spiffe-demo -c demo -- \
   openssl x509 -in /opt/spiffe-certs/svid.pem -text -noout | \
   grep -B 30 -A 3 "Subject Alternative Name" | grep -E "Not Before|Not After|Subject Alternative|URI:"
 ----

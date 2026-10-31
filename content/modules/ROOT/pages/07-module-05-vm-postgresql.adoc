@@ -116,7 +116,7 @@ EOF
 
 Expected result：`clusterspiffeid.spire.spiffe.io/userN-pg-client created`。// UNVERIFIED
 
-部署客户端 Pod：
+部署客户端 Deployment：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -126,50 +126,57 @@ kind: ServiceAccount
 metadata:
   name: pg-client-sa
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: pg-client
-  labels:
-    app: pg-client
 spec:
-  serviceAccountName: pg-client-sa
-  initContainers:
-  - name: spiffe-helper-init
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  containers:
-  - name: client
-    image: registry.redhat.io/ubi9/ubi:latest
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
-  - name: spiffe-helper
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  volumes:
-  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
-  - {name: spiffe-certs, emptyDir: {medium: Memory}}
-  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-client
+  template:
+    metadata:
+      labels:
+        app: pg-client
+    spec:
+      serviceAccountName: pg-client-sa
+      initContainers:
+      - name: spiffe-helper-init
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      containers:
+      - name: client
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+      - name: spiffe-helper
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      volumes:
+      - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+      - {name: spiffe-certs, emptyDir: {medium: Memory}}
+      - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
 EOF
 ----
 
-Expected result：`serviceaccount/pg-client-sa created` 和 `pod/pg-client created`。// UNVERIFIED
+Expected result：`serviceaccount/pg-client-sa created` 和 `deployment.apps/pg-client created`。// UNVERIFIED
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc wait pod pg-client -n "$NS" --for=condition=Ready --timeout=120s
+oc rollout status deploy/pg-client -n "$NS" --timeout=120s
 ----
 
-Expected result：`pod/pg-client condition met`。// UNVERIFIED
+Expected result：`deployment "pg-client" successfully rolled out`。// UNVERIFIED
 
 == 练习 3：mTLS 连接 PostgreSQL
 
@@ -189,7 +196,7 @@ PG_DB="spiffe_demo"
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" pg-client -c client -- ls /opt/spiffe-certs/
+oc exec -n "$NS" deploy/pg-client -c client -- ls /opt/spiffe-certs/
 ----
 
 Expected result：`svid.pem  svid.key  svid_bundle.pem`。// UNVERIFIED
@@ -198,7 +205,7 @@ Expected result：`svid.pem  svid.key  svid_bundle.pem`。// UNVERIFIED
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" pg-client -c client -- bash -c "
+oc exec -n "$NS" deploy/pg-client -c client -- bash -c "
 psql \"host=$PG_HOST port=$PG_PORT dbname=$PG_DB user=$PG_USER \
   sslmode=verify-ca \
   sslcert=/opt/spiffe-certs/svid.pem \
@@ -221,7 +228,7 @@ Expected result：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" pg-client -c client -- bash -c "
+oc exec -n "$NS" deploy/pg-client -c client -- bash -c "
 psql \"host=$PG_HOST port=$PG_PORT dbname=$PG_DB user=$PG_USER sslmode=require\" \
   -c 'SELECT 1;' 2>&1 | head -3"
 ----

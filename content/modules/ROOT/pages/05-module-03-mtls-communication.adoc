@@ -114,86 +114,101 @@ kind: ServiceAccount
 metadata:
   name: service-b-sa
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: service-a
-  labels:
-    app: service-a
 spec:
-  serviceAccountName: service-a-sa
-  initContainers:
-  - name: spiffe-helper-init
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  containers:
-  - name: demo
-    image: registry.redhat.io/ubi9/ubi:latest
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
-  - name: spiffe-helper
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  volumes:
-  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
-  - {name: spiffe-certs, emptyDir: {medium: Memory}}
-  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-a
+  template:
+    metadata:
+      labels:
+        app: service-a
+    spec:
+      serviceAccountName: service-a-sa
+      initContainers:
+      - name: spiffe-helper-init
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      containers:
+      - name: demo
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+      - name: spiffe-helper
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      volumes:
+      - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+      - {name: spiffe-certs, emptyDir: {medium: Memory}}
+      - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: service-b
-  labels:
-    app: service-b
 spec:
-  serviceAccountName: service-b-sa
-  initContainers:
-  - name: spiffe-helper-init
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  containers:
-  - name: demo
-    image: registry.redhat.io/ubi9/ubi:latest
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
-  - name: spiffe-helper
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  volumes:
-  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
-  - {name: spiffe-certs, emptyDir: {medium: Memory}}
-  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-b
+  template:
+    metadata:
+      labels:
+        app: service-b
+    spec:
+      serviceAccountName: service-b-sa
+      initContainers:
+      - name: spiffe-helper-init
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      containers:
+      - name: demo
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+      - name: spiffe-helper
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      volumes:
+      - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+      - {name: spiffe-certs, emptyDir: {medium: Memory}}
+      - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
 EOF
 ----
 
-Expected result：4 条 created 信息（2 个 ServiceAccount + 2 个 Pod）。// UNVERIFIED
+Expected result：4 条 created 信息（2 个 ServiceAccount + 2 个 Deployment）。// UNVERIFIED
 
-等待两个 Pod 就绪：
+等待两个 Deployment 就绪：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc wait pod service-a service-b -n "$NS" --for=condition=Ready --timeout=120s
+oc rollout status deploy/service-a -n "$NS" --timeout=120s
+oc rollout status deploy/service-b -n "$NS" --timeout=120s
 ----
 
-Expected result：`pod/service-a condition met` 和 `pod/service-b condition met`。// UNVERIFIED
+Expected result：`deployment "service-a" successfully rolled out` 和 `deployment "service-b" successfully rolled out`。// UNVERIFIED
 
 == 练习 5：mTLS 正向验证 — service-a → service-b
 
@@ -201,7 +216,7 @@ Expected result：`pod/service-a condition met` 和 `pod/service-b condition met
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-SVC_B_IP=$(oc get pod service-b -n "$NS" -o jsonpath='{.status.podIP}')
+SVC_B_IP=$(oc get pods -n "$NS" -l app=service-b -o jsonpath='{.items[0].status.podIP}')
 echo "service-b IP：$SVC_B_IP"
 ----
 
@@ -211,7 +226,7 @@ Expected result：打印一个集群内 IP 地址（如 `10.x.x.x`）。// UNVER
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" service-b -c demo -- bash -c '
+oc exec -n "$NS" deploy/service-b -c demo -- bash -c '
 openssl s_server \
   -cert /opt/spiffe-certs/svid.pem \
   -key /opt/spiffe-certs/svid.key \
@@ -231,7 +246,7 @@ Expected result：`mTLS server started` 和一行 `ACCEPT` 表示监听就绪。
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" service-a -c demo -- bash -c "
+oc exec -n "$NS" deploy/service-a -c demo -- bash -c "
 openssl s_client \
   -connect $SVC_B_IP:8443 \
   -cert /opt/spiffe-certs/svid.pem \
@@ -257,7 +272,7 @@ In short: 双方各自持有 SPIRE 颁发的 SVID，互相验证对方证书来�
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" service-a -c demo -- bash -c "
+oc exec -n "$NS" deploy/service-a -c demo -- bash -c "
 openssl s_client \
   -connect $SVC_B_IP:8443 \
   -CAfile /opt/spiffe-certs/svid_bundle.pem \

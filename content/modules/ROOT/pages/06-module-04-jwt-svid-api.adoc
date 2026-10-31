@@ -99,7 +99,7 @@ EOF
 
 Expected result：`clusterspiffeid.spire.spiffe.io/userN-jwt-demo created`。// UNVERIFIED
 
-部署 Pod：
+部署 Deployment：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -109,56 +109,63 @@ kind: ServiceAccount
 metadata:
   name: jwt-demo-sa
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: jwt-demo
-  labels:
-    app: jwt-demo
 spec:
-  serviceAccountName: jwt-demo-sa
-  initContainers:
-  - name: spiffe-helper-init
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  containers:
-  - name: demo
-    image: registry.redhat.io/ubi9/ubi:latest
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
-  - name: spiffe-helper
-    image: ghcr.io/spiffe/spiffe-helper:0.8.0
-    args: ['-config', '/etc/spiffe-helper/helper.conf']
-    volumeMounts:
-    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
-    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
-    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
-  volumes:
-  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
-  - {name: spiffe-certs, emptyDir: {medium: Memory}}
-  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-jwt}}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jwt-demo
+  template:
+    metadata:
+      labels:
+        app: jwt-demo
+    spec:
+      serviceAccountName: jwt-demo-sa
+      initContainers:
+      - name: spiffe-helper-init
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      containers:
+      - name: demo
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+      - name: spiffe-helper
+        image: ghcr.io/spiffe/spiffe-helper:0.8.0
+        args: ['-config', '/etc/spiffe-helper/helper.conf']
+        volumeMounts:
+        - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+        - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+        - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+      volumes:
+      - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+      - {name: spiffe-certs, emptyDir: {medium: Memory}}
+      - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-jwt}}
 EOF
 ----
 
-Expected result：`serviceaccount/jwt-demo-sa created` 和 `pod/jwt-demo created`。// UNVERIFIED
+Expected result：`serviceaccount/jwt-demo-sa created` 和 `deployment.apps/jwt-demo created`。// UNVERIFIED
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc wait pod jwt-demo -n "$NS" --for=condition=Ready --timeout=120s
+oc rollout status deploy/jwt-demo -n "$NS" --timeout=120s
 ----
 
-Expected result：`pod/jwt-demo condition met`。// UNVERIFIED
+Expected result：`deployment "jwt-demo" successfully rolled out`。// UNVERIFIED
 
 == 练习 3：查看 JWT-SVID 文件
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" jwt-demo -c demo -- ls -la /opt/spiffe-certs/
+oc exec -n "$NS" deploy/jwt-demo -c demo -- ls -la /opt/spiffe-certs/
 ----
 
 Expected result：除 `svid.pem`、`svid.key`、`svid_bundle.pem` 外，还有 `jwt.token` 文件。// UNVERIFIED
@@ -169,7 +176,7 @@ JWT 由三部分（Header.Payload.Signature）组成，Payload 是 Base64 编码
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+oc exec -n "$NS" deploy/jwt-demo -c demo -- bash -c '
 JWT=$(cat /opt/spiffe-certs/jwt.token)
 echo "=== JWT Header ===" && echo $JWT | cut -d. -f1 | base64 -d 2>/dev/null | python3 -m json.tool
 echo "=== JWT Payload (Claims) ===" && echo $JWT | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool'
@@ -201,7 +208,7 @@ In short: JWT-SVID 把工作负载的 SPIFFE ID 打包进短生命周期 Token�
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+oc exec -n "$NS" deploy/jwt-demo -c demo -- bash -c '
 echo "=== OIDC Discovery 配置 ===" && \
 curl -sk "https://oidc-discovery.{spire_operator_ns}.{cluster_domain}/.well-known/openid-configuration" | python3 -m json.tool | grep -E "issuer|jwks_uri|subject_types"
 echo "" && echo "=== JWKS（公钥集）===" && \
@@ -218,7 +225,7 @@ In short: 任何支持 OIDC 的系统（Kong、Nginx、Spring Security）可以�
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+oc exec -n "$NS" deploy/jwt-demo -c demo -- bash -c '
 FAKE_TOKEN="eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmYWtlIiwiYXVkIjpbImRlbW8tYXBpIl0sImV4cCI6MX0.invalidsignature"
 echo "=== 解码 Fake Token Payload ===" && \
 echo $FAKE_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
