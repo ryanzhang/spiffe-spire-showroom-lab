@@ -1,0 +1,5 @@
+apiVersion: v2
+name: operator-spire
+description: Zero Trust Workload Identity Manager Operator and SPIRE cluster deployment
+type: application
+version: 0.1.0

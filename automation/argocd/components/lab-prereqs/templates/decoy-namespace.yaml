@@ -1,0 +1,14 @@
+# Module 3 negative control: a GitOps-owned decoy namespace whose workloads
+# lack a valid SpiffeClusterSPIFFEID entry, proving cross-namespace denial works
+# regardless of any individual participant's progress.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: peer-demo-spire-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    demo.redhat.com/application: field-content
+    argocd.argoproj.io/managed-by: {{ .Values.argocdNamespace }}
+    app.kubernetes.io/part-of: {{ .Values.partOf }}

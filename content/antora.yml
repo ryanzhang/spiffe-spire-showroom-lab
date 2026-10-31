@@ -13,7 +13,7 @@ asciidoc:
     feature_maturity: 'GA'
     # Showroom overrides these from user_data at deploy time; defaults are for local preview.
     guid: '%GUID%'
-    cluster_domain: 'apps.cluster.example.com'
+    cluster_domain: 'apps.cluster-vtmrn.dyn.redhatworkshops.io'
     # Lab attributes
     spire_operator_ns: 'zero-trust-workload-identity-manager'
     spire_server_ns: 'zero-trust-workload-identity-manager'

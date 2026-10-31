@@ -38,7 +38,6 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      # Without this, a sync re-applies fields listed in ignoreDifferences.
       - RespectIgnoreDifferences=true
     retry:
       limit: 5
@@ -83,7 +82,87 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      # Without this, a sync re-applies fields listed in ignoreDifferences.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
+{{- if .Values.operatorSpire.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}-operator-spire
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    demo.redhat.com/application: field-content
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.argocd.project }}
+  source:
+    repoURL: {{ .Values.gitops.repoUrl }}
+    targetRevision: {{ .Values.gitops.revision | quote }}
+    path: {{ .Values.gitops.basePath }}/components/operator-spire
+    helm:
+      valuesObject:
+        lab:
+          namespace: {{ .Values.lab.namespace | quote }}
+        argocdNamespace: {{ .Values.argocd.namespace | quote }}
+        partOf: {{ .Release.Name | quote }}
+        deployer:
+          domain: {{ .Values.deployer.domain | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.lab.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
+{{- if .Values.operatorWebTerminal.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}-operator-webterminal
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    demo.redhat.com/application: field-content
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.argocd.project }}
+  source:
+    repoURL: {{ .Values.gitops.repoUrl }}
+    targetRevision: {{ .Values.gitops.revision | quote }}
+    path: {{ .Values.gitops.basePath }}/components/operator-webterminal
+    helm:
+      valuesObject:
+        argocdNamespace: {{ .Values.argocd.namespace | quote }}
+        partOf: {{ .Release.Name | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-operators
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
       - RespectIgnoreDifferences=true
     retry:
       limit: 5

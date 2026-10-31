@@ -1,0 +1,42 @@
+# Installs Zero Trust Workload Identity Manager Operator in OwnNamespace mode.
+# Wave 1: OperatorGroup + Subscription (OLM provisions these immediately).
+# Wave 10: ZeroTrustWorkloadIdentityManager CR — CRD arrives only after the
+#           operator's CSV reaches Succeeded; SkipDryRunOnMissingResource=true
+#           prevents a dry-run failure while OLM is still installing.
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: zero-trust-workload-identity-manager
+  namespace: {{ .Values.lab.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  targetNamespaces:
+    - {{ .Values.lab.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-zero-trust-workload-identity-manager
+  namespace: {{ .Values.lab.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  channel: stable-v1
+  installPlanApproval: Automatic
+  name: openshift-zero-trust-workload-identity-manager
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+# ZeroTrustWorkloadIdentityManager CR deploys SPIRE Server, Agent, and CSI Driver.
+# installedCSV: // UNVERIFIED — record after first live sync
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+  namespace: {{ .Values.lab.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec: {}

@@ -4,17 +4,17 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: CHANGE-ME-lab
+  name: spiffe-spire-lab
   namespace: openshift-gitops
   labels:
     demo.redhat.com/application: field-content
-    app.kubernetes.io/part-of: CHANGE-ME-lab
+    app.kubernetes.io/part-of: spiffe-spire-lab
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/CHANGE-ME/CHANGE-ME.git
+    repoURL: https://github.com/ryanzhang/spiffe-spire-showroom-lab.git
     targetRevision: "GIT_REVISION"
     path: automation/argocd
     helm:

@@ -17,6 +17,12 @@ lab:
 prereqs:
   enabled: true
 
+operatorSpire:
+  enabled: true
+
+operatorWebTerminal:
+  enabled: true
+
 showroom:
   enabled: true
   namespace: showroom

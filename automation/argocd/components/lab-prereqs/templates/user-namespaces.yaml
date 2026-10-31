@@ -1,0 +1,29 @@
+{{- range .Values.participants.users }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}-spire-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    demo.redhat.com/application: field-content
+    argocd.argoproj.io/managed-by: {{ $.Values.argocdNamespace }}
+    app.kubernetes.io/part-of: {{ $.Values.partOf }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: participant-edit
+  namespace: {{ . }}-spire-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+{{- end }}

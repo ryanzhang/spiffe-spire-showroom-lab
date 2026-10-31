@@ -1,0 +1,5 @@
+apiVersion: v2
+name: operator-webterminal
+description: Web Terminal Operator for participant CLI access
+type: application
+version: 0.1.0
