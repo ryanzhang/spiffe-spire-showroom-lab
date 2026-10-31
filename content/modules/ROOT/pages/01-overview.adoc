@@ -48,7 +48,12 @@
 | 节点层
 | SpiffeCSIDriver
 | *DaemonSet — 运行在每个节点上*&#xa;（本实验：5 个 Pod，与 SpireAgent 共存）
-| 将 SVID（`tls.crt` + `tls.key` + `bundle.crt`）挂载到 Pod 的 volume；证书到期前由 SpireAgent 推送新 SVID，*原地替换文件，无需重启 Pod*
+| 将 SPIRE Agent 的 Workload API *socket*（`spire-agent.sock`）挂载到 Pod volume，供 SPIFFE-aware 应用直接调用。**不写入**证书文件——证书文件由 spiffe-helper 负责写入。
+
+| 应用层
+| spiffe-helper-rhel9（Red Hat 官方支持）
+| *Sidecar + Init container — 运行在业务 Pod 内*&#xa;镜像：`registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1`&#xa;GA since OCP 4.22，官方文档 § 12.9
+| 以 Pod 自身身份调用 Workload API，将 X.509-SVID 写入共享 emptyDir（Memory tmpfs）：`svid.pem`、`svid.key`、`svid_bundle.pem`；Sidecar 持续监听，原地轮换，主应用无感知
 |===
 
 [NOTE]
@@ -79,11 +84,15 @@ SVID 通过节点上的 Unix socket（`/tmp/spire-agent/public/spire-agent.sock`
 
 | 证书轮换
 | 依赖外部 vault 设置 + Sidecar 轮询；通常需要 Pod 重启触发重新挂载
-| SpireAgent 主动推送，*原地更新文件*，应用无感知，无需重启
+| spiffe-helper sidecar 持续监听 Workload API，在证书到期前*原地更新文件*，应用无感知，无需重启
 
 | 私钥处理
 | 私钥内容写入文件（持久化到 tmpfs）
-| 私钥由 SpireAgent 在内存中生成，写入 Pod 的 tmpfs volume，Pod 结束时自动清除
+| 私钥由 SpireAgent 在内存中生成，传给 spiffe-helper 后写入 `emptyDir（medium: Memory）`，Pod 结束时自动清除
+
+| 证书文件获取机制
+| 挂载预存 Secret 或直接写文件
+| SPIFFE CSI Driver 仅暴露 socket；spiffe-helper（GA, OCP 4.22+）以 Pod 自身进程身份调用 socket，写入 `svid.pem`/`svid.key`/`svid_bundle.pem`
 |===
 
 == 核心区别：必须能说清楚的一个概念
