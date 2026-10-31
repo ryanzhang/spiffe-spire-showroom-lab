@@ -39,55 +39,38 @@
 命令完成本身不是证明。请仔细阅读 Expected result，确认你看到了描述的输出。
 ====
 
-== 实验进程
-
-=== 1. 观察 SPIRE 部署（30 分钟）
-从 ZeroTrustWorkloadIdentityManager Operator 的状态读起：确认 Server、Agent、CSI Driver 全部就绪，读取 trust bundle 的 CA 信息。
-
-=== 2. 工作负载注册与 X.509-SVID（45 分钟）
-在你的命名空间部署一个测试 Pod，创建 SpiffeClusterSPIFFEID 注册条目，观察 CSI Driver 将 SVID 原地挂载到 Pod，用 openssl 检查证书结构。
-
-=== 3. mTLS 微服务通信（45 分钟）
-部署两个服务（service-a 和 service-b），各自持有独立的 SVID。验证 mTLS 正向通路，然后从 `peer-demo-spire-lab`（没有有效注册条目）发起请求，观察 TLS 握手失败。
-
-=== 4. JWT-SVID REST API 认证（45 分钟）
-通过 Workload API 获取 JWT-SVID，携带该 Token 调用 REST API；API 通过 SPIRE OIDC Discovery Provider 验证 Token，无效或过期 Token 返回 HTTP 401。
-
-=== 5. VM 上的 SPIRE Agent — PostgreSQL mTLS（60 分钟）
-KubeVirt VM 上的 SPIRE Agent 通过 join_token 完成节点认证，PostgreSQL 配置 `ssl_ca_file` 指向 SPIRE trust bundle，OCP 微服务使用 SVID 证书连接数据库，无证书连接被 `pg_hba.conf` 拒绝。
-
 == 实验地图
 
-[cols="1,2,1",options="header"]
+[cols="1,3,1",options="header"]
 |===
-| 模块 | 成果 | 时间
+| 模块 | 描述与成果 | 时间
 
 | 概览（阅读）
-| 能说明 SPIFFE ID / SVID / Trust Bundle 的含义和关系
+| *为什么需要 SPIFFE/SPIRE？* 理解 SPIFFE ID / SVID / Trust Bundle 的含义和关系；建立技术栈的整体认知
 | 20 分钟
 
 | 1. 观察 SPIRE 部署
-| 验证 Server / Agent / CSI Driver 健康状态，读取 Trust Bundle
+| *零信任体系已就绪的证据是什么？* 检查 ZeroTrustWorkloadIdentityManager 状态，读取 Trust Bundle CA 信息，确认 5 个 SPIRE Agent 已完成 k8s_psat 节点认证
 | 30 分钟
 
 | 2. 工作负载注册与 X.509-SVID
-| 注册工作负载，挂载 SVID，检查证书字段
+| *工作负载如何获得加密身份而无需管理证书文件？* 创建 SpiffeClusterSPIFFEID 注册条目；CSI Driver 将 SVID 原地挂载到 Pod；用 openssl 检查 URI SAN 字段
 | 45 分钟
 
 | 3. mTLS 微服务通信
-| 服务 A → 服务 B 通过；服务 C → 服务 B 被拒绝
+| *如何证明只有授权服务才能建立连接？* 验证 service-a → service-b mTLS 正向通路；证明 peer-demo 命名空间的请求在 TLS 握手阶段被拒绝，拒绝点在网络层
 | 45 分钟
 
 | 4. JWT-SVID REST API 认证
-| 调用方携带 JWT-SVID；API 通过 OIDC Discovery 验证令牌
+| *REST API 如何在不使用 API Key 的情况下验证调用方身份？* 从 Workload API 获取 JWT-SVID，以 Bearer Token 调用 REST API；过期或无效令牌返回 HTTP 401
 | 45 分钟
 
 | 5. VM 上的 SPIRE Agent — PostgreSQL mTLS
-| SPIRE Agent 运行在 KubeVirt VM；OCP 微服务 mTLS 连接数据库
+| *SPIFFE 信任域能覆盖非 Kubernetes 工作负载吗？* KubeVirt VM 上的 SPIRE Agent 通过 join_token 认证并加入信任域；OCP 微服务使用 SVID 证书 mTLS 连接 PostgreSQL；无证书连接被数据库拒绝
 | 60 分钟
 
 | 清理
-| 删除参与者创建的资源
+| 参与者清理自己命名空间中创建的资源；Facilitator 执行 `make teardown`
 | 15 分钟
 |===
 

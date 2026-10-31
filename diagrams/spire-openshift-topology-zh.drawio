@@ -1,0 +1,112 @@
+<mxfile host="drawio" modified="2026-10-31" version="24.0.0" type="device">
+  <diagram id="spire-ocp-topology-zh" name="SPIRE on OpenShift 部署拓扑">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- 集群边界 -->
+        <mxCell id="cluster" value="OpenShift 集群 — cluster-vtmrn（OCP 4.22）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#FF8800;strokeWidth=3;dashed=1;fontSize=15;fontStyle=1;verticalAlign=top;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="10" y="10" width="1440" height="950" as="geometry" />
+        </mxCell>
+
+        <!-- SPIRE 命名空间 -->
+        <mxCell id="spire-ns" value="命名空间：zero-trust-workload-identity-manager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="860" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="operator-box" value="ZeroTrustWorkloadIdentityManager&#xa;Operator 控制器（Deployment）&#xa;&#xa;职责：管理所有 SPIRE 组件生命周期" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="server-box" value="SPIRE 服务器（StatefulSet，1 副本）&#xa;&#x25a0; 持久化存储 2Gi（SQLite3）&#xa;&#xa;职责：签发 SVID，维护信任域&#xa;暴露信任包端点" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="oidc-box" value="SPIRE OIDC 发现提供者（Deployment，1 副本）&#xa;&#x2192; OpenShift Route（自动创建）&#xa;&#xa;职责：发布 OIDC 端点&#xa;用于验证 JWT-SVID" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- 外部验证方 -->
+        <mxCell id="ext-jwt" value="JWT 验证方&#xa;（REST 接口 / 浏览器）" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="810" y="60" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- 控制平面节点 -->
+        <mxCell id="master-bg" value="控制平面节点 ×3（兼 master 和 worker 角色）&#xa;DaemonSet 在每个节点上部署一个 Pod" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="340" width="580" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-master" value="SPIRE 代理（DaemonSet）&#xa;Unix socket：&#xa;/tmp/spire-agent/&#xa;职责：节点认证（k8s_psat）&#xa;向工作负载提供 Workload API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="csi-master" value="SPIFFE CSI 驱动（DaemonSet）&#xa;驱动标识：csi.spiffe.io&#xa;职责：从 SPIRE 代理获取 SVID&#xa;原地写入 Pod 挂载卷&#xa;（证书轮换无需重启 Pod）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="300" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- 工作节点 -->
+        <mxCell id="worker-bg" value="工作节点 ×2&#xa;DaemonSet 在每个节点上部署一个 Pod" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="660" y="340" width="580" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-worker" value="SPIRE 代理（DaemonSet）&#xa;Unix socket：&#xa;/tmp/spire-agent/&#xa;职责：节点认证（k8s_psat）&#xa;向工作负载提供 Workload API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="690" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="csi-worker" value="SPIFFE CSI 驱动（DaemonSet）&#xa;驱动标识：csi.spiffe.io&#xa;职责：从 SPIRE 代理获取 SVID&#xa;原地写入 Pod 挂载卷&#xa;（证书轮换无需重启 Pod）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- 用户命名空间 -->
+        <mxCell id="user-ns" value="命名空间：userN-spire-lab（×10 参与者命名空间）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="590" width="680" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pod-a" value="服务 A（Pod）&#xa;挂载卷：/run/spiffe/tls/&#xa;  tls.crt（X.509-SVID 证书）&#xa;  tls.key（内存生成私钥）&#xa;  bundle.crt（信任域根证书）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="655" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pod-b" value="服务 B（Pod）&#xa;挂载卷：/run/spiffe/tls/&#xa;  tls.crt（X.509-SVID 证书）&#xa;  tls.key（内存生成私钥）&#xa;  bundle.crt（信任域根证书）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="655" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- 对照组命名空间 -->
+        <mxCell id="peer-ns" value="命名空间：peer-demo-spire-lab（负向控制组——无 ClusterSPIFFEID 注册条目）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="780" y="590" width="560" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="peer-pod" value="对照组 Pod&#xa;无 SVID&#xa;（无注册条目 &#x2192;&#xa;代理拒绝颁发）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="990" y="660" width="170" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- 连线 -->
+        <mxCell id="e1" value="&#x2460; 节点认证&#xa;gRPC / k8s_psat" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;fontColor=#333;" edge="1" source="agent-master" target="server-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1b" value="&#x2460; 节点认证&#xa;gRPC / k8s_psat" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;fontColor=#333;" edge="1" source="agent-worker" target="server-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="&#x2461; 申请 SVID&#xa;Unix socket" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#6c8ebf;strokeWidth=2;fontSize=10;" edge="1" source="csi-master" target="agent-master" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="&#x2462; SVID 原地挂载&#xa;（CSI 卷）" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" source="csi-master" target="pod-a" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3b" value="&#x2462; SVID 原地挂载&#xa;（CSI 卷）" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" source="csi-worker" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="&#x2463; 双向 TLS（&#x2713; 互验证书）" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#009900;strokeWidth=3;fontSize=11;fontColor=#009900;endArrow=block;startArrow=block;startFill=1;endFill=1;" edge="1" source="pod-a" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="&#x2464; TLS 握手失败 &#x2717;&#xa;（无有效 SVID）" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#b85450;strokeWidth=2;dashed=1;fontSize=10;fontColor=#b85450;" edge="1" source="peer-pod" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="&#x2465; JWT-SVID 验证&#xa;OIDC 发现端点" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" source="ext-jwt" target="oidc-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

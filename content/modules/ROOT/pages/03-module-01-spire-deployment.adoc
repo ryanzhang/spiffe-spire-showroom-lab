@@ -107,10 +107,38 @@ Expected result：
 
 In short: Trust Bundle 是信任域的"根证书"，所有 SVID 验证都始于它。
 
-.深入：bundle 如何分发到工作负载？
+.深入：SPIRE Agent 和 CSI Driver 各自负责什么？
 [%collapsible]
 ====
-SPIRE Agent 通过 Workload API（Unix socket）向 Pod 推送 trust bundle。SpiffeCSIDriver 在挂载 volume 时，将 `bundle.crt` 写入 Pod 文件系统（通常在 `/run/spiffe/tls/`）。bundle 定期轮换，CSI Driver 自动更新文件内容，无需重启 Pod。
+两个 DaemonSet 分工明确：
+
+*SPIRE Agent*（Unix socket `/tmp/spire-agent/public/spire-agent.sock`）
+
+* 通过 Workload API 向调用方提供数据：X.509-SVID（cert + key）+ Trust Bundle（SPIRE CA 根证书）
+* Agent 本身不写任何文件到 Pod——它只是数据来源
+
+*SpiffeCSIDriver*（`csi.spiffe.io`）
+
+* Pod 挂载 CSI volume 时，CSI Driver 调用 *同节点* SPIRE Agent 的 Workload API
+* 将获取到的数据写入 Pod volume 挂载点：`tls.crt`（SVID 证书链）、`tls.key`（私钥）、`bundle.crt`（CA 根证书）
+* 证书到期前，CSI Driver 重新向 Agent 申请并 *原地覆盖* 文件——Pod 无感知，无需重启
+
+*`bundle.crt` 与 `spire-bundle` ConfigMap 的关系*
+
+两者包含相同的 CA 根证书内容，但交付路径和用途不同：
+
+[cols="1,2,2",options="header"]
+|===
+| 形式 | 交付方式 | 典型用途
+
+| Pod 内 `bundle.crt`
+| CSI Driver 动态写入，随 CA 轮换自动更新
+| Workload 用它验证 mTLS 对端的 SVID 是否由本信任域 CA 签发
+
+| `spire-bundle` ConfigMap（`{spire_operator_ns}`）
+| GitOps/管理员静态分发
+| 非 SPIFFE 系统（Ingress、外部负载均衡器）用来信任 SPIRE 颁发的 SVID
+|===
 ====
 
 == 练习 3：确认节点认证已完成

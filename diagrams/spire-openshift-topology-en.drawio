@@ -1,0 +1,112 @@
+<mxfile host="drawio" modified="2026-10-31" version="24.0.0" type="device">
+  <diagram id="spire-ocp-topology-en" name="SPIRE on OpenShift Deployment Topology">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- OpenShift Cluster boundary -->
+        <mxCell id="cluster" value="OpenShift Cluster — cluster-vtmrn (OCP 4.22)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#FF8800;strokeWidth=3;dashed=1;fontSize=15;fontStyle=1;verticalAlign=top;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="10" y="10" width="1440" height="950" as="geometry" />
+        </mxCell>
+
+        <!-- SPIRE Namespace -->
+        <mxCell id="spire-ns" value="Namespace: zero-trust-workload-identity-manager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="860" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="operator-box" value="ZeroTrustWorkloadIdentityManager&#xa;Operator Controller Manager&#xa;(Deployment)&#xa;&#xa;Role: Manages lifecycle of all SPIRE components" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="server-box" value="SpireServer&#xa;(StatefulSet, 1 replica)&#xa;&#x25a0; 2Gi PVC (sqlite3)&#xa;&#xa;Role: Issues SVIDs, maintains trust domain,&#xa;exposes bundle endpoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="oidc-box" value="SpireOIDCDiscoveryProvider&#xa;(Deployment, 1 replica)&#xa;&#x2192; OCP Route (managedRoute)&#xa;&#xa;Role: Publishes OIDC endpoint&#xa;for JWT-SVID validation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="120" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- External JWT client -->
+        <mxCell id="ext-jwt" value="JWT Verifier&#xa;(REST API / Browser)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="810" y="60" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Control Plane Nodes -->
+        <mxCell id="master-bg" value="Control Plane Nodes x3 (master + worker roles) — DaemonSet pods run on every node" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="340" width="580" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-master" value="SpireAgent Pod&#xa;(DaemonSet)&#xa;Unix socket:&#xa;/tmp/spire-agent/&#xa;Role: Node attestation (k8s_psat)&#xa;+ Workload API provider" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="csi-master" value="SpiffeCSIDriver Pod&#xa;(DaemonSet)&#xa;driver: csi.spiffe.io&#xa;Role: Fetches SVID from Agent,&#xa;mounts files in-place&#xa;(no Pod restart on rotation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="300" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Worker Nodes -->
+        <mxCell id="worker-bg" value="Worker Nodes x2 — DaemonSet pods run on every node" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="660" y="340" width="580" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-worker" value="SpireAgent Pod&#xa;(DaemonSet)&#xa;Unix socket:&#xa;/tmp/spire-agent/&#xa;Role: Node attestation (k8s_psat)&#xa;+ Workload API provider" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="690" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="csi-worker" value="SpiffeCSIDriver Pod&#xa;(DaemonSet)&#xa;driver: csi.spiffe.io&#xa;Role: Fetches SVID from Agent,&#xa;mounts files in-place&#xa;(no Pod restart on rotation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="400" width="190" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- User Namespace -->
+        <mxCell id="user-ns" value="Namespace: userN-spire-lab (x10 participant namespaces)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="40" y="590" width="680" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pod-a" value="service-a Pod&#xa;vol: /run/spiffe/tls/&#xa;  tls.crt  (X.509-SVID)&#xa;  tls.key  (in-memory key)&#xa;  bundle.crt (Trust Bundle CA)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="655" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pod-b" value="service-b Pod&#xa;vol: /run/spiffe/tls/&#xa;  tls.crt  (X.509-SVID)&#xa;  tls.key  (in-memory key)&#xa;  bundle.crt (Trust Bundle CA)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="655" width="220" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Peer demo namespace -->
+        <mxCell id="peer-ns" value="Namespace: peer-demo-spire-lab (negative control — no ClusterSPIFFEID registration)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;verticalAlign=top;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="780" y="590" width="560" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="peer-pod" value="peer Pod&#xa;No SVID&#xa;(no registration entry&#xa; &#x2192; Agent refuses to issue)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="990" y="660" width="170" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- EDGES -->
+        <mxCell id="e1" value="&#x2460; Node Attestation&#xa;gRPC / k8s_psat" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;fontColor=#333;" edge="1" source="agent-master" target="server-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1b" value="&#x2460; Node Attestation&#xa;gRPC / k8s_psat" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;fontColor=#333;" edge="1" source="agent-worker" target="server-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="&#x2461; SVID Request&#xa;Unix socket" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#6c8ebf;strokeWidth=2;fontSize=10;" edge="1" source="csi-master" target="agent-master" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="&#x2462; SVID in-place mount&#xa;(CSI volume)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" source="csi-master" target="pod-a" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3b" value="&#x2462; SVID in-place mount&#xa;(CSI volume)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" source="csi-worker" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="&#x2463; mTLS (&#x2713; mutual cert verification)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#009900;strokeWidth=3;fontSize=11;fontColor=#009900;endArrow=block;startArrow=block;startFill=1;endFill=1;" edge="1" source="pod-a" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="&#x2464; TLS handshake failed &#x2717;&#xa;(no valid SVID)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#b85450;strokeWidth=2;dashed=1;fontSize=10;fontColor=#b85450;" edge="1" source="peer-pod" target="pod-b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="&#x2465; JWT-SVID verification&#xa;OIDC Discovery" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" source="ext-jwt" target="oidc-box" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
