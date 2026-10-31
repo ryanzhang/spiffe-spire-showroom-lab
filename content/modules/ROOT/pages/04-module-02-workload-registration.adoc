@@ -13,6 +13,43 @@
 * *SPIFFE CSI Driver* — 将 SVID（`tls.crt`、`tls.key`、`bundle.crt`）作为只读 volume 挂载到 Pod 中。
 ====
 
+.扩展阅读：传统 Pod 如何通过证书实现加密通信？
+[%collapsible]
+====
+理解传统方案的局限，有助于体会 SPIFFE/SPIRE 解决的根本问题。
+
+*传统流程（以 cert-manager + mTLS 为例）：*
+
+. *生成证书*：管理员或 CI/CD 流水线使用 cert-manager 等工具，为每个服务生成证书和私钥（`tls.crt` + `tls.key`），以及共享的 CA 根证书（`ca.crt`）
+. *存储为 Kubernetes Secret*：将证书和私钥存入 `kubernetes.io/tls` 类型的 Secret（etcd 默认明文存储）
+. *挂载到 Pod*：Deployment 通过 volume 将 Secret 挂载到 Pod 文件系统（如 `/etc/tls/`）
+. *服务配置 TLS*：服务进程启动时读取文件，配置 TLS 侦听（Nginx `ssl_certificate`、Go `tls.LoadX509KeyPair` 等）
+. *建立 mTLS*：服务 A 调用服务 B 时，双方出示各自证书，用共享 CA 根证书互相验证
+
+*主要局限：*
+
+[cols="1,2",options="header"]
+|===
+| 挑战 | 说明
+
+| 证书与工作负载身份解耦
+| 证书绑定到 CN 或 DNS SAN，不绑定到"哪个 Kubernetes 工作负载"——持有证书文件的任何进程都可冒充该服务
+
+| 证书轮换代价高
+| cert-manager 可自动续期，但加载新证书通常需要重启 Pod，或实现复杂的热加载逻辑
+
+| 私钥暴露面广
+| 私钥以文件形式存在于 etcd（Secret）和 Pod 文件系统，存在被快照、备份或误读取的风险
+
+| 规模化困难
+| N 个服务 × M 个环境 = 大量独立证书需要跟踪有效期、手动更新挂载配置
+|===
+
+*SPIFFE/SPIRE 改变的是什么：*
+
+SPIFFE 不替换 TLS 协议本身，而是改变了"谁有资格获得证书"的决策机制——从"谁持有 Secret 文件"变为"谁是这个经过 Workload Attestation 的 Kubernetes 工作负载"。私钥在内存中生成，有效期缩短到 1 小时，原地轮换无需重启 Pod。
+====
+
 == 技术背景
 
 SPIRE 的工作负载注册流程：
@@ -86,14 +123,18 @@ Expected result：`pod/spiffe-demo condition met`。// UNVERIFIED
 
 == 练习 3：注册工作负载（负向控制在前）
 
-在注册前，确认 Pod 的 volume 挂载点为空（没有 SVID）：
+在注册前，确认 SVID 证书文件尚不存在：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" spiffe-demo -- ls /run/spiffe/tls/ 2>&1
+oc exec -n "$NS" spiffe-demo -- ls /run/spiffe/tls/
 ----
 
-Expected result：命令输出为空或 `ls: /run/spiffe/tls/: No such file or directory`——证明没有注册条目时 CSI Driver 不会挂载任何内容。// UNVERIFIED
+Expected result：
+----
+spire-agent.sock
+----
+`spire-agent.sock` 是 SPIRE Agent 的 Workload API Unix socket，CSI volume 挂载时始终存在。但 SVID 证书文件（`tls.crt`、`tls.key`、`bundle.crt`）此时**尚不存在**——没有匹配的 ClusterSPIFFEID 注册条目，Agent 不会颁发 SVID。这是本练习的负向控制：身份不会自动分配，必须显式注册。
 
 现在创建 SpiffeClusterSPIFFEID 注册条目：
 
@@ -105,14 +146,14 @@ kind: ClusterSPIFFEID
 metadata:
   name: $(oc whoami)-demo
 spec:
-  spiffeIDTemplate: "spiffe://{trust_domain}/ns/\{{ .PodMeta.Namespace }}/sa/\{{ .PodSpec.ServiceAccountName }}"
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
   podSelector:
     matchLabels:
       app: spiffe-demo
   namespaceSelector:
     matchLabels:
       kubernetes.io/metadata.name: "$NS"
-  ttl: 3600s
+  ttl: 3600
 EOF
 ----
 

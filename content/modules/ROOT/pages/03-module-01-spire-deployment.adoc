@@ -145,6 +145,14 @@ In short: Trust Bundle 是信任域的"根证书"，所有 SVID 验证都始于�
 
 本练习以 Facilitator 身份演示（需要 `oc exec` 权限进入 spire-server 容器）。Facilitator 运行以下命令并展示输出：
 
+.提示：`{spire_operator_ns}` 是什么？
+[%collapsible]
+====
+`{spire_operator_ns}` 展开为 `zero-trust-workload-identity-manager`——这是 SPIRE Server 控制平面安装的命名空间。
+
+所有 SPIRE 核心组件均部署在此命名空间中：SpireServer（StatefulSet）、SpireAgent（DaemonSet）、SpiffeCSIDriver（DaemonSet）、SpireOIDCDiscoveryProvider，以及 Operator 控制器。
+====
+
 [source,bash]
 ----
 oc exec -n {spire_operator_ns} spire-server-0 -c spire-server -- \
