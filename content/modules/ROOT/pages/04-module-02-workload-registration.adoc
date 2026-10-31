@@ -45,9 +45,47 @@
 | N 个服务 × M 个环境 = 大量独立证书需要跟踪有效期、手动更新挂载配置
 |===
 
+*cert-manager 解决了什么，还剩什么问题：*
+
+cert-manager 能自动申请、续期、存储证书（需要配置 Issuer / ClusterIssuer），比纯手工管理进步很多。但与 SPIFFE/SPIRE 相比仍有本质差距：
+
+[cols="1,2,2",options="header"]
+|===
+| 维度 | cert-manager | SPIFFE/SPIRE
+
+| 身份来源
+| 管理员预先配置（"这个 Deployment 向这个 Issuer 申请这个域名的证书"）
+| 运行时从工作负载属性动态派生（namespace + ServiceAccount = 工作负载身份）
+
+| 证书格式
+| 标准 X.509（CN / DNS SAN）
+| X.509-SVID（SPIFFE URI SAN = `spiffe://<trust-domain>/ns/.../sa/...`）
+
+| 每个服务是否需要预配置
+| ✅ 必须声明 `Certificate` CR
+| ❌ 只需一条 `SpiffeClusterSPIFFEID` 选择器，不需要逐服务配置
+
+| 跨平台（VM / 裸机）
+| 复杂，需要额外集成
+| 原生支持（SPIRE Agent 多种 attestation 机制）
+
+| 外部 Issuer 依赖
+| 必须（Vault、Let's Encrypt 或自建 CA）
+| 无——SPIRE Server 本身就是信任域内的 CA
+
+| 轮换无需重启
+| 需要额外配置（cert-manager CSI driver + 应用热加载）
+| 原生支持，CSI Driver 原地更新文件，应用无感知
+|===
+
+[NOTE]
+====
+cert-manager 和 SPIFFE 并不互斥——`cert-manager-csi-driver-spiffe` 项目可以用 cert-manager 作为 SPIRE SVID 的签发后端，适合已有 cert-manager 基础设施的团队。
+====
+
 *SPIFFE/SPIRE 改变的是什么：*
 
-SPIFFE 不替换 TLS 协议本身，而是改变了"谁有资格获得证书"的决策机制——从"谁持有 Secret 文件"变为"谁是这个经过 Workload Attestation 的 Kubernetes 工作负载"。私钥在内存中生成，有效期缩短到 1 小时，原地轮换无需重启 Pod。
+SPIFFE 不替换 TLS 协议本身，而是改变了"谁有资格获得证书"的决策机制——从"谁持有 Secret 文件"或"谁向 Issuer 申请了这个名字的证书"变为"谁是这个经过 Workload Attestation 的 Kubernetes 工作负载"。私钥在内存中生成，有效期缩短到 1 小时，原地轮换无需重启 Pod。
 ====
 
 == 技术背景
