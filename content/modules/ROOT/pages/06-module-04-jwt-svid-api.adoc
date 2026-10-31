@@ -1,0 +1,6 @@
+= Module 4: JWT-SVID REST API Authentication
+:navtitle: Module 4: JWT-SVID API Auth
+
+// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+
+This module covers obtaining a JWT-SVID and using it as a bearer token to authenticate against a REST API that validates the token via the SPIRE OIDC Discovery endpoint.

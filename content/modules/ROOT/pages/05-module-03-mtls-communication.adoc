@@ -1,0 +1,6 @@
+= Module 3: mTLS Microservice Communication
+:navtitle: Module 3: mTLS Communication
+
+// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+
+This module demonstrates mutual TLS between microservices using SVID certificates, with a positive path and a cross-namespace denial control.

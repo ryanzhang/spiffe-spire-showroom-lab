@@ -1,0 +1,33 @@
+= Technical Reference
+:navtitle: Technical Reference
+
+== What each project contributes
+
+[cols="1,3",options="header"]
+|===
+| Project | Use it for
+
+| link:https://CHANGE-ME[CHANGE-ME^]
+| CHANGE-ME
+|===
+
+== Evidence interpretation
+
+[cols="1,2,2",options="header"]
+|===
+| Topic | Supported interpretation | Required evidence
+
+| CHANGE-ME
+| CHANGE-ME
+| CHANGE-ME
+|===
+
+== What this lab does not prove
+
+* CHANGE-ME
+
+== Sources and further reading
+
+// The product doc sections each module follows (see page-set.md, Grounding).
+* Module 1: link:https://docs.redhat.com/CHANGE-ME[CHANGE-ME doc section^]
+* link:https://CHANGE-ME[CHANGE-ME^]

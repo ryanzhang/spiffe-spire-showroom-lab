@@ -1,0 +1,11 @@
+# Surfaces lab details on the RHDP order page.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lab-userinfo
+  namespace: {{ .Values.lab.namespace }}
+  labels:
+    demo.redhat.com/userinfo: ""
+data:
+  showroom_url: "https://showroom-{{ .Values.showroom.namespace }}.{{ .Values.deployer.domain }}"
+  lab_namespace: {{ .Values.lab.namespace | quote }}

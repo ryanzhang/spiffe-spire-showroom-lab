@@ -1,0 +1,22 @@
+name: modules
+title: "SPIFFE/SPIRE Zero Trust Identity Lab"
+version: ~
+nav:
+  - modules/ROOT/nav.adoc
+
+asciidoc:
+  attributes:
+    experimental: true
+    page-pagination: true
+    attribute-missing: warn
+    # GA, TP (Technology Preview) or DP (Developer Preview)
+    feature_maturity: 'GA'
+    # Showroom overrides these from user_data at deploy time; defaults are for local preview.
+    guid: '%GUID%'
+    cluster_domain: 'apps.cluster.example.com'
+    # Lab attributes
+    spire_operator_ns: 'zero-trust-workload-identity-manager'
+    spire_server_ns: 'zero-trust-workload-identity-manager'
+    lab_ns_suffix: 'spire-lab'
+    showroom_namespace: 'showroom'
+    trust_domain: 'cluster.local'

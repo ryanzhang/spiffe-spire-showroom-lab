@@ -1,0 +1,6 @@
+= Module 2: Workload Registration and X.509 SVID
+:navtitle: Module 2: Workload Registration
+
+// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+
+This module covers registering a workload with SPIRE and obtaining an X.509 SVID via the SPIFFE CSI Driver.

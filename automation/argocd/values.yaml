@@ -1,0 +1,39 @@
+# Repository Argo CD syncs the children from (this lab's repo).
+gitops:
+  repoUrl: https://github.com/ryanzhang/spiffe-spire-showroom-lab.git
+  revision: main
+  basePath: automation/argocd
+
+argocd:
+  namespace: openshift-gitops
+  # The field-content workload overrides this to "deployed".
+  project: default
+
+lab:
+  # Shared prereqs namespace (SPIRE Operator, shared workloads)
+  namespace: zero-trust-workload-identity-manager
+
+# false for a participant-built lab with no components/lab-prereqs.
+prereqs:
+  enabled: true
+
+showroom:
+  enabled: true
+  namespace: showroom
+  # Shared cluster: participants use their own OpenShift identity.
+  # The Showroom URL has no login — terminal must not hold participant permissions.
+  terminal: false
+  # Upstream chart, referenced (not copied) and pinned to a commit.
+  chart:
+    repoUrl: https://github.com/rhpds/field-sourced-content-template.git
+    revision: 24ab4baf372d3dbe6b31a7532f8ad8683b5a22c6
+    path: examples/helm/components/showroom
+  terminalImage: quay.io/rhpds/openshift-showroom-terminal-ocp:4.22-2026-09-14-060546@sha256:c0a85c5b62a9081208f44b01dfbe4a411369dbe42079a3d6fe2312824e4a1054
+
+# Injected by the field-content workload (or bootstrap.yaml); do not set here.
+deployer:
+  domain: ""
+  apiUrl: ""
+
+fieldContent:
+  deploymentType: helm

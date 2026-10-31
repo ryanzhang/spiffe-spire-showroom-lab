@@ -1,0 +1,6 @@
+= Module 5: SPIRE Agent on VM – PostgreSQL mTLS
+:navtitle: Module 5: VM and PostgreSQL
+
+// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+
+This module extends the SPIFFE/SPIRE trust domain to a non-Kubernetes workload: a PostgreSQL database running in a KubeVirt VM. Participants configure mTLS between an OCP microservice and the database using SVID certificates.

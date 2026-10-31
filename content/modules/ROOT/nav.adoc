@@ -1,0 +1,17 @@
+* xref:index.adoc[Introduction]
+* xref:01-overview.adoc[Architecture and Zero Trust Model]
+* xref:02-details.adoc[Prerequisites and Environment]
+
+.Zero Trust Identity Track (~4 hours)
+* xref:03-module-01-spire-deployment.adoc[Module 1: Exploring the SPIRE Deployment]
+* xref:04-module-02-workload-registration.adoc[Module 2: Workload Registration and X.509 SVID]
+* xref:05-module-03-mtls-communication.adoc[Module 3: mTLS Microservice Communication]
+* xref:06-module-04-jwt-svid-api.adoc[Module 4: JWT-SVID REST API Authentication]
+* xref:07-module-05-vm-postgresql.adoc[Module 5: SPIRE Agent on VM – PostgreSQL mTLS]
+
+.Wrap-up
+* xref:90-cleanup.adoc[Cleanup]
+* xref:91-reference.adoc[Technical Reference]
+
+.Facilitators
+* xref:92-facilitator-guide.adoc[Facilitator Guide]

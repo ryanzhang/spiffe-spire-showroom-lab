@@ -1,0 +1,94 @@
+{{- if .Values.showroom.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}-showroom
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    demo.redhat.com/application: field-content
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.argocd.project }}
+  source:
+    repoURL: {{ .Values.showroom.chart.repoUrl }}
+    targetRevision: {{ .Values.showroom.chart.revision | quote }}
+    path: {{ .Values.showroom.chart.path }}
+    helm:
+      valuesObject:
+        showroom:
+          namespace: {{ .Values.showroom.namespace }}
+          content:
+            repoUrl: {{ .Values.gitops.repoUrl | quote }}
+            repoRef: {{ .Values.gitops.revision | quote }}
+          terminal:
+            enabled: {{ .Values.showroom.terminal }}
+            image: {{ .Values.showroom.terminalImage | quote }}
+        deployer:
+          domain: {{ .Values.deployer.domain | quote }}
+        demo:
+          namespace: {{ .Values.lab.namespace | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.showroom.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Without this, a sync re-applies fields listed in ignoreDifferences.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
+{{- if .Values.prereqs.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}-prereqs
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    demo.redhat.com/application: field-content
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.argocd.project }}
+  source:
+    repoURL: {{ .Values.gitops.repoUrl }}
+    targetRevision: {{ .Values.gitops.revision | quote }}
+    path: {{ .Values.gitops.basePath }}/components/lab-prereqs
+    helm:
+      valuesObject:
+        lab:
+          namespace: {{ .Values.lab.namespace | quote }}
+        argocdNamespace: {{ .Values.argocd.namespace | quote }}
+        partOf: {{ .Release.Name | quote }}
+        showroom:
+          namespace: {{ .Values.showroom.namespace | quote }}
+        deployer:
+          domain: {{ .Values.deployer.domain | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.lab.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Without this, a sync re-applies fields listed in ignoreDifferences.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
