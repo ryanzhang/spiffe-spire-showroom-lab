@@ -1,47 +1,252 @@
 = 模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS
 :navtitle: 模块 5：VM 与 PostgreSQL
 
-本模块回答的客户问题：*SPIFFE/SPIRE 的零信任身份体系能否覆盖到 Kubernetes 之外的虚拟机和传统数据库？*
+本模块回答的客户问题：*SPIFFE/SPIRE 的零信任身份体系能否覆盖 Kubernetes 之外的虚拟机和传统数据库——不改应用代码，只改基础设施？*
 
-一个运行在 KubeVirt VM 内的 PostgreSQL 数据库通过 SPIRE Agent 加入信任域。OCP 上的微服务使用 X.509-SVID 证书与 PostgreSQL 建立 mTLS 连接；没有有效 SVID 的客户端连接请求被数据库拒绝。
+一个运行在 KubeVirt VM 内的 PostgreSQL 数据库通过 SPIRE Agent 加入信任域。OCP 上的微服务使用 X.509-SVID 证书与 PostgreSQL 建立 mTLS 连接；没有有效 SVID 的客户端连接被数据库在 TLS 层拒绝。
 
-// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+// DRAFT — 本模块依赖预部署的 KubeVirt VM。Facilitator 在开课前通过 GitOps 部署 VM + PostgreSQL + SPIRE Agent。
+
+.这个场景解决什么实际问题？
+[%collapsible]
+====
+企业通常有大量运行在 VM 上的传统数据库（PostgreSQL、MySQL、Oracle）。这些数据库与 Kubernetes 微服务之间的认证，传统上依赖：
+
+* 固定的数据库用户名/密码（存在泄漏风险）
+* 网络 IP 白名单（可绕过，IP 可伪造）
+* 静态 TLS 证书（手工管理，轮换困难）
+
+SPIFFE/SPIRE 的解决方案：VM 上的 SPIRE Agent 通过 join_token 加入信任域，PostgreSQL 配置使用 SVID 证书进行 mTLS 客户端认证——客户端的身份由 SPIRE 颁发的 X.509-SVID 决定，而不是数据库用户名或密码。
+
+*这是应用改造的零代码变更路径*：微服务代码不变，只是把数据库连接的证书从静态文件改为 SVID。
+====
 
 == 技术背景
 
-SPIRE 支持多种非 Kubernetes 环境的节点认证方式：
+=== KubeVirt VM 上的 SPIRE Agent
+
+VM 无法使用 k8s_psat（Kubernetes Projected Service Account Token）进行节点认证，改用 `join_token`：
+
+. Facilitator 在 SPIRE Server 上生成一次性 join_token
+. join_token 注入 VM（通过 GitOps cloud-init 或 Secret 挂载）
+. VM 上的 SPIRE Agent 用 join_token 向 SPIRE Server 完成一次性认证
+. 认证成功后，VM Agent 加入信任域，获得节点 SVID
+. 后续工作负载（PostgreSQL）通过 VM Agent 的 Workload API 获取 SVID
+
+=== PostgreSQL mTLS 配置
+
+PostgreSQL 配置关键参数：
 
 [cols="1,2",options="header"]
 |===
-| 认证方式 | 适用场景
+| 参数 | 作用
 
-| `join_token`
-| 实验室、初始引导；一次性令牌，用后即废
+| `ssl = on`
+| 强制所有连接使用 TLS
 
-| `aws_iid`（EC2 Instance Identity Document）
-| AWS EC2 实例
+| `ssl_cert_file`
+| 服务端 SVID 证书（`svid.pem`）
 
-| `gcp_iit`
-| GCP VM
+| `ssl_key_file`
+| 服务端私钥（`svid.key`）
 
-| `x509pop`（证书弹出）
-| 已有 PKI 基础设施的环境
+| `ssl_ca_file`
+| Trust Bundle 根证书（`svid_bundle.pem`），用于验证客户端证书
+
+| `pg_hba.conf: hostssl ... cert`
+| 要求客户端提供有效的 X.509 证书才能连接
 |===
-
-本实验使用 `join_token` 方式——Facilitator 预先生成令牌并通过 GitOps 注入 VM。
-
-PostgreSQL 配置说明：
-
-* `ssl = on`：强制所有连接使用 TLS
-* `ssl_ca_file`：指向 SPIRE trust bundle（`bundle.crt`），用于验证客户端证书
-* `pg_hba.conf` 中 `hostssl ... cert`：要求客户端提供有效的 X.509 证书
 
 == 学习目标
 
-* 观察 VM 上的 SPIRE Agent 如何出现在 `agent list` 中
-* 使用 SVID 证书连接 PostgreSQL，验证 `pg_stat_ssl.ssl = true`
-* 在不提供证书的情况下尝试连接，观察连接被拒绝
+* 观察 VM 上的 SPIRE Agent 出现在 `agent list` 中（join_token attestation）
+* 确认 PostgreSQL 服务端持有由 SPIRE 颁发的 SVID
+* 使用 SVID 证书通过 mTLS 连接 PostgreSQL
+* 验证无 SVID 证书的连接请求被数据库拒绝
 
-// UNVERIFIED — 完整步骤待 VM 预部署完成后填写
+== 练习 1：确认 VM Agent 已加入信任域
+
+本练习以 Facilitator 身份演示（需要 `oc exec` 权限进入 spire-server 容器）：
+
+[source,bash]
+----
+oc exec -n {spire_operator_ns} spire-server-0 -c spire-server -- \
+  /spire-server agent list | grep -A 5 "join_token\|vm\|postgresql"
+----
+
+Expected result（Facilitator 演示）：
+----
+SPIFFE ID         : spiffe://{trust_domain}/spire/agent/join_token/<token-uuid>
+Attestation type  : join_token
+Expiration time   : ...
+Can re-attest     : false
+----
+`join_token` 类型的 Agent 表示 VM 已成功加入信任域。与 OCP 节点的 `k8s_psat` Agent 共存于同一信任域。// UNVERIFIED
+
+== 练习 2：部署 PostgreSQL 客户端 Pod
+
+设置命名空间变量：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+echo "操作命名空间：$NS"
+----
+
+先创建 ClusterSPIFFEID（Pod 启动前必须存在）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-pg-client
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: pg-client
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
+
+Expected result：`clusterspiffeid.spire.spiffe.io/userN-pg-client created`。// UNVERIFIED
+
+部署客户端 Pod：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pg-client-sa
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pg-client
+  labels:
+    app: pg-client
+spec:
+  serviceAccountName: pg-client-sa
+  initContainers:
+  - name: spiffe-helper-init
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  containers:
+  - name: client
+    image: registry.redhat.io/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+  - name: spiffe-helper
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  volumes:
+  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+  - {name: spiffe-certs, emptyDir: {medium: Memory}}
+  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+EOF
+----
+
+Expected result：`serviceaccount/pg-client-sa created` 和 `pod/pg-client created`。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc wait pod pg-client -n "$NS" --for=condition=Ready --timeout=120s
+----
+
+Expected result：`pod/pg-client condition met`。// UNVERIFIED
+
+== 练习 3：mTLS 连接 PostgreSQL
+
+// UNVERIFIED — 依赖 VM 中 PostgreSQL 的 IP 和端口
+
+获取 Facilitator 提供的 PostgreSQL VM IP（在黑板/Showroom 访问信息中）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+PG_HOST="<Facilitator 提供的 VM IP>"
+PG_PORT="5432"
+PG_USER="$(oc whoami)"
+PG_DB="spiffe_demo"
+----
+
+确认客户端 Pod 持有 SVID：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" pg-client -c client -- ls /opt/spiffe-certs/
+----
+
+Expected result：`svid.pem  svid.key  svid_bundle.pem`。// UNVERIFIED
+
+使用 SVID 证书连接 PostgreSQL（mTLS 正向验证）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" pg-client -c client -- bash -c "
+psql \"host=$PG_HOST port=$PG_PORT dbname=$PG_DB user=$PG_USER \
+  sslmode=verify-ca \
+  sslcert=/opt/spiffe-certs/svid.pem \
+  sslkey=/opt/spiffe-certs/svid.key \
+  sslrootcert=/opt/spiffe-certs/svid_bundle.pem\" \
+  -c 'SELECT pg_is_in_recovery(), ssl, client_cert_dn FROM pg_stat_ssl WHERE pid = pg_backend_pid();'"
+----
+
+Expected result：
+----
+ pg_is_in_recovery | ssl | client_cert_dn
+-------------------+-----+------------------
+ f                 | t   | URI:spiffe://{trust_domain}/ns/<NS>/sa/pg-client-sa
+----
+`ssl = t` 和 `client_cert_dn` 中的 SPIFFE URI 证明：连接使用 mTLS，数据库验证了客户端的 SVID 身份。// UNVERIFIED
+
+== 练习 4：负向控制 — 无证书连接被拒绝
+
+尝试不提供客户端证书连接 PostgreSQL：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" pg-client -c client -- bash -c "
+psql \"host=$PG_HOST port=$PG_PORT dbname=$PG_DB user=$PG_USER sslmode=require\" \
+  -c 'SELECT 1;' 2>&1 | head -3"
+----
+
+Expected result：
+----
+psql: error: connection to server at "..." failed:
+SSL connection failed: ...certificate required...
+----
+`pg_hba.conf` 中的 `hostssl ... cert` 规则要求客户端必须提供有效的 X.509 证书。没有 SVID 的客户端连接被拒绝，甚至不会到达认证阶段。// UNVERIFIED
+
+In short: 数据库身份认证从"用户名+密码"升级为"加密证书+信任域验证"，攻击者即使知道 IP 和端口，没有 SPIRE 颁发的 SVID 也无法建立连接。
+
+== 证据检查点
+
+* join_token 认证和 k8s_psat 认证有什么本质区别？为什么 VM 必须用 join_token？
+* `pg_hba.conf` 的 `hostssl ... cert` 和 `hostssl ... md5` 的区别是什么？
+* 为什么 PostgreSQL 能信任 SPIRE 颁发的客户端证书？两者如何共享信任根？
+
+.参考答案
+[%collapsible]
+====
+* k8s_psat 使用 Kubernetes API Server 签发的 Projected Service Account Token 证明节点身份——仅适用于 Kubernetes 节点。join_token 是 SPIRE Server 生成的一次性令牌，适用于任何能运行 SPIRE Agent 的工作负载（VM、裸机、容器）。
+* `md5` 使用密码认证；`cert` 要求客户端提供有效的 X.509 证书，证书的 CN 或 SAN 必须匹配 `pg_hba.conf` 指定的模式。mTLS (`cert`) 不需要密码，身份由证书本身证明。
+* PostgreSQL 的 `ssl_ca_file` 配置了 SPIRE Trust Bundle（`svid_bundle.pem`），即 SPIRE Server CA 的根证书。当客户端出示 SVID 证书时，PostgreSQL 用这个 CA 验证证书合法性——两者共享同一个信任根（SPIRE CA），这是 SPIFFE 信任域的核心。
+====
 
 Proceed to xref:90-cleanup.adoc[清理].

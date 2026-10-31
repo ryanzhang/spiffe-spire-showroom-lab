@@ -1,15 +1,22 @@
 = 模块 4：JWT-SVID REST API 认证
 :navtitle: 模块 4：JWT-SVID API 认证
 
-本模块回答的客户问题：*我的 REST API 如何在不使用 API Key 或 OAuth Secret 的情况下验证调用方的身份？*
+本模块回答的客户问题：*REST API 如何在不使用 API Key 的情况下验证调用方的 SPIFFE 身份——且令牌有效期仅 5 分钟？*
 
-调用方从 SPIFFE Workload API 获取 JWT-SVID（类似 JWT 的短生命周期令牌），以 Bearer Token 形式携带在 HTTP 请求头中。REST API 通过 SPIRE OIDC Discovery Provider 发布的公钥验证该令牌。
+你将配置 spiffe-helper 获取 JWT-SVID（短生命周期 JWT 令牌），用它调用一个 echo REST API，然后解码 Token 查看其中的 SPIFFE ID 声明。最后通过 SPIRE OIDC Discovery Provider 验证公钥，确认任何 OIDC 兼容系统均可独立验证该 Token。
 
-// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+.刚接触 JWT-SVID？
+[%collapsible]
+====
+* *JWT-SVID* — 以 JWT（JSON Web Token）格式表示的 SPIFFE 身份证明。与 X.509-SVID 不同，JWT-SVID 适合 HTTP Bearer Token 场景（REST API、Webhook）。
+* *有效期极短* — 本实验配置为 5 分钟（`defaultJWTValidity`），使用后即废弃，不像 API Key 那样长期有效。
+* *OIDC Discovery* — SPIRE OIDC Discovery Provider 发布标准 OIDC 端点（`.well-known/openid-configuration` + `/keys`），任何 OIDC 兼容的 API 网关或库均可直接验证 JWT-SVID，无需专有 SDK。
+* *audience（受众）* — JWT 中的 `aud` 字段，指明该 Token 为哪个服务颁发，防止 Token 被重放到其他服务。
+====
 
 == 技术背景
 
-JWT-SVID 与 X.509-SVID 的区别：
+JWT-SVID 与 X.509-SVID 对比：
 
 [cols="1,2,2",options="header"]
 |===
@@ -17,30 +24,221 @@ JWT-SVID 与 X.509-SVID 的区别：
 
 | 传输方式
 | TLS 握手（自动）
-| HTTP Header（应用层）
+| HTTP Authorization Header（应用层）
 
 | 适合场景
-| gRPC、数据库连接、长连接
+| gRPC、数据库连接、长连接 mTLS
 | REST API、Webhook、函数调用
+
+| 有效期
+| 1 小时（本实验），自动轮换
+| 5 分钟，一次性使用
 
 | 验证方式
 | 证书链 + trust bundle
-| OIDC 公钥 + JWKS endpoint
-
-| 有效期
-| 1 小时（自动轮换）
-| 5 分钟（不轮换，一次性使用）
+| OIDC Discovery 公钥（JWKS）
 |===
 
-SPIRE OIDC Discovery Provider 在本集群的地址：
+SPIRE OIDC Discovery 端点（本集群）：
 `https://oidc-discovery.{spire_operator_ns}.{cluster_domain}`
 
 == 学习目标
 
-* 从 Workload API 获取 JWT-SVID
-* 携带 JWT-SVID 调用 REST API，验证成功响应
-* 携带过期或无效 Token，观察 HTTP 401
+* 配置 spiffe-helper 同时输出 X.509-SVID 和 JWT-SVID
+* 解码 JWT-SVID，查看 SPIFFE ID 声明（`sub`）和有效期（`exp`）
+* 通过 OIDC Discovery 端点验证 JWT 公钥
+* 模拟使用 JWT-SVID 调用 REST API（无效 Token 返回 401）
 
-// UNVERIFIED — 完整步骤待 JWT-SVID 演示服务部署后填写
+== 练习 1：更新 ConfigMap 加入 JWT-SVID 配置
+
+在现有 spiffe-helper 配置中增加 `jwt_svids` 块：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+cat <<EOF | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spiffe-helper-config-jwt
+data:
+  helper.conf: |
+    agent_address = "/spiffe-workload-api/spire-agent.sock"
+    cert_dir = "/opt/spiffe-certs"
+    svid_file_name = "svid.pem"
+    svid_key_file_name = "svid.key"
+    svid_bundle_file_name = "svid_bundle.pem"
+    jwt_svids = [{ jwt_audience = "demo-api", jwt_svid_file_name = "jwt.token" }]
+EOF
+----
+
+Expected result：`configmap/spiffe-helper-config-jwt created`。// UNVERIFIED
+
+== 练习 2：为 JWT demo Pod 创建 ClusterSPIFFEID 和部署
+
+先创建 ClusterSPIFFEID（Pod 启动前必须存在）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-jwt-demo
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: jwt-demo
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
+
+Expected result：`clusterspiffeid.spire.spiffe.io/userN-jwt-demo created`。// UNVERIFIED
+
+部署 Pod：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jwt-demo-sa
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jwt-demo
+  labels:
+    app: jwt-demo
+spec:
+  serviceAccountName: jwt-demo-sa
+  initContainers:
+  - name: spiffe-helper-init
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  containers:
+  - name: demo
+    image: registry.redhat.io/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+  - name: spiffe-helper
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  volumes:
+  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+  - {name: spiffe-certs, emptyDir: {medium: Memory}}
+  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-jwt}}
+EOF
+----
+
+Expected result：`serviceaccount/jwt-demo-sa created` 和 `pod/jwt-demo created`。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc wait pod jwt-demo -n "$NS" --for=condition=Ready --timeout=120s
+----
+
+Expected result：`pod/jwt-demo condition met`。// UNVERIFIED
+
+== 练习 3：查看 JWT-SVID 文件
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" jwt-demo -c demo -- ls -la /opt/spiffe-certs/
+----
+
+Expected result：除 `svid.pem`、`svid.key`、`svid_bundle.pem` 外，还有 `jwt.token` 文件。// UNVERIFIED
+
+== 练习 4：解码 JWT-SVID，查看声明
+
+JWT 由三部分（Header.Payload.Signature）组成，Payload 是 Base64 编码的 JSON：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+JWT=$(cat /opt/spiffe-certs/jwt.token)
+echo "=== JWT Header ===" && echo $JWT | cut -d. -f1 | base64 -d 2>/dev/null | python3 -m json.tool
+echo "=== JWT Payload (Claims) ===" && echo $JWT | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool'
+----
+
+Expected result：
+----
+=== JWT Header ===
+{
+    "alg": "RS256",
+    "kid": "...",
+    "typ": "JWT"
+}
+=== JWT Payload (Claims) ===
+{
+    "aud": ["demo-api"],
+    "exp": <Unix 时间戳，约 5 分钟后>,
+    "iat": <签发时间>,
+    "sub": "spiffe://{trust_domain}/ns/<NS>/sa/jwt-demo-sa"
+}
+----
+`sub` 字段包含调用方的 SPIFFE ID，`aud` 确认该 Token 只为 `demo-api` 颁发，`exp` 是 5 分钟后的时间戳。// UNVERIFIED
+
+In short: JWT-SVID 把工作负载的 SPIFFE ID 打包进短生命周期 Token——API 网关验证 Token 即等于验证调用方身份。
+
+== 练习 5：通过 OIDC Discovery 验证公钥
+
+任何 OIDC 兼容系统都可以从 Discovery 端点获取 SPIRE 的公钥来独立验证 JWT-SVID：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+echo "=== OIDC Discovery 配置 ===" && \
+curl -sk "https://oidc-discovery.{spire_operator_ns}.{cluster_domain}/.well-known/openid-configuration" | python3 -m json.tool | grep -E "issuer|jwks_uri|subject_types"
+echo "" && echo "=== JWKS（公钥集）===" && \
+curl -sk "https://oidc-discovery.{spire_operator_ns}.{cluster_domain}/keys" | python3 -m json.tool | grep -E "kty|alg|use|kid"'
+----
+
+Expected result：OIDC 配置显示 `issuer` 为本集群 OIDC 端点，JWKS 包含 RSA 公钥（`kty: RSA`、`use: sig`）。// UNVERIFIED
+
+In short: 任何支持 OIDC 的系统（Kong、Nginx、Spring Security）可以直接用此端点验证 JWT-SVID，无需任何 SPIRE-specific 代码。
+
+== 练习 6：负向控制 — 过期 Token 被拒绝
+
+模拟一个无效（格式损坏）Token 的验证失败：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" jwt-demo -c demo -- bash -c '
+FAKE_TOKEN="eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmYWtlIiwiYXVkIjpbImRlbW8tYXBpIl0sImV4cCI6MX0.invalidsignature"
+echo "=== 解码 Fake Token Payload ===" && \
+echo $FAKE_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
+echo "" && echo "结论：exp=1 表示 1970-01-01 已过期，签名无效，任何 OIDC 验证器都会拒绝此 Token"'
+----
+
+Expected result：Payload 显示 `exp: 1`（已过期），说明过期 Token 可被解码但签名验证失败，OIDC 验证器返回 401。// UNVERIFIED
+
+== 证据检查点
+
+* JWT-SVID 的 `sub` 字段和 X.509-SVID 的 URI SAN 有什么关系？
+* `aud` 字段的作用是什么？如果一个 API 只接受 `audience=api-gateway`，能用 `audience=demo-api` 的 Token 访问它吗？
+* OIDC Discovery 端点让哪些系统不需要修改代码就能验证 SPIFFE 身份？
+
+.参考答案
+[%collapsible]
+====
+* `sub` 和 URI SAN 包含相同的 SPIFFE ID（`spiffe://...`），只是表达形式不同：X.509 在证书 extension 里，JWT 在 `sub` 声明里。
+* `aud` 防止 Token 跨服务重放。用 `audience=demo-api` 颁发的 Token 发给 `audience=api-gateway` 的服务，验证器会拒绝（`aud` 不匹配）。
+* 任何支持 OIDC/JWKS 验证的系统：Kong API Gateway、Nginx（`auth_jwt`）、Spring Security OAuth2、AWS API Gateway（JWT Authorizer）、Istio RequestAuthentication——无需任何 SPIRE SDK。
+====
 
 Proceed to xref:07-module-05-vm-postgresql.adoc[模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS].

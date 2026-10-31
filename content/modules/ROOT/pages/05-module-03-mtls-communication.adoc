@@ -1,32 +1,297 @@
 = 模块 3：mTLS 微服务通信
 :navtitle: 模块 3：mTLS 通信
 
-本模块回答的客户问题：*我如何证明只有持有正确 SPIFFE ID 的服务才能建立连接，而其他服务——哪怕来自同一集群——都会被拒绝？*
+本模块回答的客户问题：*如何证明只有持有正确 SPIFFE ID 的服务才能建立连接，而其他服务——哪怕在同一集群内——都会在 TLS 握手阶段被拒绝？*
 
-你将部署两个服务（service-a 和 service-b），各自持有独立的 SVID，通过 mTLS 进行通信。然后从 `peer-demo-spire-lab` 命名空间（一个没有注册条目的对照组）发起请求，观察 TLS 握手失败。
+你将在命名空间内部署 service-a 和 service-b，各自持有独立的 SVID 证书。验证 mTLS 正向通路后，从 `peer-demo-spire-lab`（无 ClusterSPIFFEID 注册条目的对照组命名空间）发起请求，观察 TLS 握手失败。
 
-// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+.刚接触 mTLS？
+[%collapsible]
+====
+* *mTLS（Mutual TLS）* — 双向 TLS：不仅服务端向客户端证明身份，客户端也必须向服务端出示有效证书。在 SPIFFE 中，双方各自持有 SVID，用 trust bundle 互相验证。
+* *TLS 握手失败* — 当客户端没有有效证书（或证书不在信任的 CA 链内）时，服务端在 TLS 握手阶段拒绝连接，HTTP 层永远不会被触达。这是零信任的关键：拒绝发生在网络层，不依赖任何应用代码。
+* *peer-demo-spire-lab* — GitOps 预部署的对照组命名空间，其工作负载无 ClusterSPIFFEID 注册条目，因此无法获取 SVID，无法通过 mTLS 验证。
+====
 
 == 技术背景
 
-SPIFFE mTLS 工作原理：
+本模块使用 `openssl s_server` 和 `openssl s_client` 演示 mTLS：
 
-. 两个服务各自持有 SPIRE 颁发的 X.509-SVID
-. 建立 TLS 连接时，双方互相出示证书
-. 每一方用 `bundle.crt`（SPIRE trust bundle）验证对方证书是否由同一 CA 签发
-. 可选：通过检查 SAN 中的 SPIFFE ID 决定是否允许连接（授权层）
+* *service-b*：运行 `openssl s_server`，加载自己的 SVID 证书和 trust bundle，要求客户端提供有效证书
+* *service-a*：运行 `openssl s_client`，携带自己的 SVID 证书连接 service-b
+* *peer-demo pod*：无 SVID，连接时无法提供有效客户端证书，TLS 握手失败
 
-本实验使用 SPIFFE CSI Driver 挂载 SVID，服务代码直接读取文件，不需要任何密钥管理代码。
+SVID 证书由 spiffe-helper 写入共享 emptyDir，openssl 直接读取文件——应用代码无需感知 SPIRE。
 
 == 学习目标
 
-* 部署使用 SVID 建立 mTLS 的微服务
-* 验证正向通信：service-a → service-b 成功
-* 验证负向控制：peer-demo 命名空间的 Pod → service-b 被拒绝
+* 部署两个各自持有 SVID 的微服务
+* 验证 mTLS 双向证书认证的正向通路
+* 证明未注册工作负载（peer-demo）在 TLS 层被拒绝
 
-== 练习 1：部署 service-b（被调用方）
+== 练习 1：确保命名空间变量已设置
 
-// UNVERIFIED — 完整步骤待 mTLS 演示方案确认后填写
-// 待定：使用 Envoy sidecar + SPIFFE CSI，还是应用层直接读取 SVID 进行 TLS？
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+echo "操作命名空间：$NS"
+----
+
+Expected result：打印 `操作命名空间：userN-{lab_ns_suffix}`。// UNVERIFIED
+
+== 练习 2：注册 service-a 和 service-b
+
+为两个服务分别创建 ClusterSPIFFEID（必须在 Pod 启动前创建）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-service-a
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: service-a
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-service-b
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: service-b
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
+
+Expected result：两条 `clusterspiffeid.spire.spiffe.io/userN-service-a created` 和 `userN-service-b created`。// UNVERIFIED
+
+== 练习 3：创建 spiffe-helper ConfigMap
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spiffe-helper-config-svc
+data:
+  helper.conf: |
+    agent_address = "/spiffe-workload-api/spire-agent.sock"
+    cert_dir = "/opt/spiffe-certs"
+    svid_file_name = "svid.pem"
+    svid_key_file_name = "svid.key"
+    svid_bundle_file_name = "svid_bundle.pem"
+EOF
+----
+
+Expected result：`configmap/spiffe-helper-config-svc created`。// UNVERIFIED
+
+== 练习 4：部署 service-a 和 service-b
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-a-sa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-b-sa
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: service-a
+  labels:
+    app: service-a
+spec:
+  serviceAccountName: service-a-sa
+  initContainers:
+  - name: spiffe-helper-init
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  containers:
+  - name: demo
+    image: registry.redhat.io/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+  - name: spiffe-helper
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  volumes:
+  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+  - {name: spiffe-certs, emptyDir: {medium: Memory}}
+  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: service-b
+  labels:
+    app: service-b
+spec:
+  serviceAccountName: service-b-sa
+  initContainers:
+  - name: spiffe-helper-init
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf', '-daemon-mode=false']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  containers:
+  - name: demo
+    image: registry.redhat.io/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs, readOnly: true}
+  - name: spiffe-helper
+    image: ghcr.io/spiffe/spiffe-helper:0.8.0
+    args: ['-config', '/etc/spiffe-helper/helper.conf']
+    volumeMounts:
+    - {name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}
+    - {name: spiffe-certs, mountPath: /opt/spiffe-certs}
+    - {name: spiffe-helper-config, mountPath: /etc/spiffe-helper, readOnly: true}
+  volumes:
+  - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+  - {name: spiffe-certs, emptyDir: {medium: Memory}}
+  - {name: spiffe-helper-config, configMap: {name: spiffe-helper-config-svc}}
+EOF
+----
+
+Expected result：4 条 created 信息（2 个 ServiceAccount + 2 个 Pod）。// UNVERIFIED
+
+等待两个 Pod 就绪：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc wait pod service-a service-b -n "$NS" --for=condition=Ready --timeout=120s
+----
+
+Expected result：`pod/service-a condition met` 和 `pod/service-b condition met`。// UNVERIFIED
+
+== 练习 5：mTLS 正向验证 — service-a → service-b
+
+获取 service-b 的 Pod IP：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+SVC_B_IP=$(oc get pod service-b -n "$NS" -o jsonpath='{.status.podIP}')
+echo "service-b IP：$SVC_B_IP"
+----
+
+Expected result：打印一个集群内 IP 地址（如 `10.x.x.x`）。// UNVERIFIED
+
+在 service-b 后台启动 mTLS server（要求客户端提供证书）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" service-b -c demo -- bash -c '
+openssl s_server \
+  -cert /opt/spiffe-certs/svid.pem \
+  -key /opt/spiffe-certs/svid.key \
+  -CAfile /opt/spiffe-certs/svid_bundle.pem \
+  -Verify 1 \
+  -www \
+  -port 8443 \
+  -naccept 5 \
+  > /tmp/server.log 2>&1 &
+echo "mTLS server started (PID $!)"
+sleep 1 && cat /tmp/server.log | head -5'
+----
+
+Expected result：`mTLS server started` 和一行 `ACCEPT` 表示监听就绪。// UNVERIFIED
+
+从 service-a 以自己的 SVID 证书连接 service-b（正向 mTLS）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" service-a -c demo -- bash -c "
+openssl s_client \
+  -connect $SVC_B_IP:8443 \
+  -cert /opt/spiffe-certs/svid.pem \
+  -key /opt/spiffe-certs/svid.key \
+  -CAfile /opt/spiffe-certs/svid_bundle.pem \
+  -verify_return_error \
+  < /dev/null 2>&1 | grep -E 'Verify return code|subject|issuer|Peer certificate'"
+----
+
+Expected result：
+----
+subject=URI:spiffe://{trust_domain}/ns/<NS>/sa/service-a-sa
+issuer=...SPIRE Server CA...
+Verify return code: 0 (ok)
+----
+`Verify return code: 0` 证明：service-a 持有有效 SVID，service-b 验证通过，mTLS 连接建立成功。// UNVERIFIED
+
+In short: 双方各自持有 SPIRE 颁发的 SVID，互相验证对方证书来自同一 CA——无需任何预共享密钥。
+
+== 练习 6：负向控制 — 无 SVID 的客户端被拒绝
+
+从 service-a 不携带客户端证书发起连接（模拟无 SVID 的访问）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" service-a -c demo -- bash -c "
+openssl s_client \
+  -connect $SVC_B_IP:8443 \
+  -CAfile /opt/spiffe-certs/svid_bundle.pem \
+  < /dev/null 2>&1 | grep -E 'alert|error|handshake|Verify'"
+----
+
+Expected result：
+----
+140...alert handshake failure
+...
+Verify return code: ...
+----
+无有效客户端证书时，service-b 在 TLS 握手阶段拒绝连接——HTTP 层永远不会被触达。// UNVERIFIED
+
+In short: 零信任的核心——身份验证在网络层完成，不依赖应用代码，不依赖 IP 白名单。
+
+.peer-demo-spire-lab 命名空间的情况
+[%collapsible]
+====
+`peer-demo-spire-lab` 是 GitOps 预部署的对照组命名空间，其工作负载没有 ClusterSPIFFEID 注册条目，因此 spiffe-helper 无法获取 SVID，`/opt/spiffe-certs/` 目录为空。在没有任何证书的情况下，尝试以任何方式连接 service-b 都会在 TLS 握手阶段失败——这是确定性的，不依赖任何配置，而是由 SPIFFE 信任模型保证的。
+====
+
+== 证据检查点
+
+* 为什么 service-a 能连接 service-b，而没有 SVID 的客户端不能？
+* 如果 service-a 的 SVID 过期（1 小时后），连接会发生什么？Sidecar 如何解决这个问题？
+* `peer-demo-spire-lab` 命名空间无法连接 service-b 的技术原因是什么？
+
+.参考答案
+[%collapsible]
+====
+* service-a 持有 SPIRE CA 签发的 X.509-SVID，trust bundle（`svid_bundle.pem`）是两者信任的根证书。没有 SVID 的客户端无法提供合法的客户端证书，TLS 握手时服务端验证失败（`VERIFY_FAILED`）。
+* 如果 SVID 过期，openssl 连接将因证书过期而失败。Sidecar（spiffe-helper daemon mode）在证书到期前自动替换文件——service-a 下一次读取时已经是新证书，正在进行的长连接需要重新握手才能续期（或使用 TLS 1.3 会话恢复）。
+* `peer-demo-spire-lab` 的工作负载无 ClusterSPIFFEID 注册条目 → SPIRE Agent 拒绝颁发 SVID → spiffe-helper 获取失败 → 无证书文件 → 无法通过 mTLS 验证。
+====
 
 Proceed to xref:06-module-04-jwt-svid-api.adoc[模块 4：JWT-SVID REST API 认证].

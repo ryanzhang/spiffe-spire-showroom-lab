@@ -316,7 +316,7 @@ In short: 证书来自 SPIRE，身份来自 Kubernetes 工作负载元数据—�
 ----
 oc exec -n "$NS" spiffe-demo -c demo -- \
   openssl x509 -in /opt/spiffe-certs/svid.pem -text -noout | \
-  grep -A 3 "Subject Alternative Name"
+  grep -B 30 -A 3 "Subject Alternative Name" | grep -E "Not Before|Not After|Subject Alternative|URI:"
 ----
 
 Expected result：
