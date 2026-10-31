@@ -1,6 +1,46 @@
-= Module 4: JWT-SVID REST API Authentication
-:navtitle: Module 4: JWT-SVID API Auth
+= 模块 4：JWT-SVID REST API 认证
+:navtitle: 模块 4：JWT-SVID API 认证
 
-// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+本模块回答的客户问题：*我的 REST API 如何在不使用 API Key 或 OAuth Secret 的情况下验证调用方的身份？*
 
-This module covers obtaining a JWT-SVID and using it as a bearer token to authenticate against a REST API that validates the token via the SPIRE OIDC Discovery endpoint.
+调用方从 SPIFFE Workload API 获取 JWT-SVID（类似 JWT 的短生命周期令牌），以 Bearer Token 形式携带在 HTTP 请求头中。REST API 通过 SPIRE OIDC Discovery Provider 发布的公钥验证该令牌。
+
+// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+
+== 技术背景
+
+JWT-SVID 与 X.509-SVID 的区别：
+
+[cols="1,2,2",options="header"]
+|===
+| 特征 | X.509-SVID | JWT-SVID
+
+| 传输方式
+| TLS 握手（自动）
+| HTTP Header（应用层）
+
+| 适合场景
+| gRPC、数据库连接、长连接
+| REST API、Webhook、函数调用
+
+| 验证方式
+| 证书链 + trust bundle
+| OIDC 公钥 + JWKS endpoint
+
+| 有效期
+| 1 小时（自动轮换）
+| 5 分钟（不轮换，一次性使用）
+|===
+
+SPIRE OIDC Discovery Provider 在本集群的地址：
+`https://oidc-discovery.{spire_operator_ns}.{cluster_domain}`
+
+== 学习目标
+
+* 从 Workload API 获取 JWT-SVID
+* 携带 JWT-SVID 调用 REST API，验证成功响应
+* 携带过期或无效 Token，观察 HTTP 401
+
+// UNVERIFIED — 完整步骤待 JWT-SVID 演示服务部署后填写
+
+Proceed to xref:07-module-05-vm-postgresql.adoc[模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS].

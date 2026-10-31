@@ -1,6 +1,168 @@
-= Module 2: Workload Registration and X.509 SVID
-:navtitle: Module 2: Workload Registration
+= 模块 2：工作负载注册与 X.509-SVID
+:navtitle: 模块 2：工作负载注册
 
-// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+本模块回答的客户问题：*我的 Pod 如何获得一个加密身份，而无需在 Deployment 里硬编码任何证书或密钥？*
 
-This module covers registering a workload with SPIRE and obtaining an X.509 SVID via the SPIFFE CSI Driver.
+你将在自己的命名空间部署一个测试 Pod，创建 SpiffeClusterSPIFFEID 注册条目，然后检查 CSI Driver 挂载到 Pod 中的 X.509-SVID 内容。
+
+.刚接触工作负载注册？
+[%collapsible]
+====
+* *SpiffeClusterSPIFFEID* — 集群范围的 SPIFFE ID 注册条目，通过 Kubernetes 选择器（namespace + ServiceAccount）匹配工作负载。
+* *X.509-SVID* — 包含 SPIFFE URI SAN 的 X.509 证书，私钥由 SPIRE Agent 在内存中管理，不写入磁盘。
+* *SPIFFE CSI Driver* — 将 SVID（`tls.crt`、`tls.key`、`bundle.crt`）作为只读 volume 挂载到 Pod 中。
+====
+
+== 技术背景
+
+SPIRE 的工作负载注册流程：
+
+. 管理员（或 GitOps）创建 `SpiffeClusterSPIFFEID` CR，指定匹配的 namespace 和 ServiceAccount
+. SPIRE Server 记录注册条目
+. 当匹配的 Pod 运行时，SPIRE Agent 通过 Workload Attestation 验证 Pod 身份
+. Agent 向 SPIRE Server 申请 SVID，Server 签发并返回
+. SpiffeCSIDriver 将 SVID 写入 Pod 的 volume 挂载点，每小时自动轮换
+
+== 学习目标
+
+* 创建 SpiffeClusterSPIFFEID 注册条目
+* 验证 X.509-SVID 成功挂载到 Pod
+* 用 openssl 检查 SVID 的 SPIFFE URI SAN 和有效期
+
+== 练习 1：设置你的命名空间变量
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+echo "操作命名空间：$NS"
+----
+
+Expected result：打印 `操作命名空间：userN-{lab_ns_suffix}`。// UNVERIFIED
+
+== 练习 2：部署测试工作负载
+
+部署一个挂载了 SPIFFE CSI volume 的测试 Pod：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spiffe-demo-sa
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: spiffe-demo
+  labels:
+    app: spiffe-demo
+spec:
+  serviceAccountName: spiffe-demo-sa
+  containers:
+  - name: demo
+    image: registry.redhat.io/ubi9/ubi-minimal:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - name: spiffe-svid
+      mountPath: /run/spiffe/tls
+      readOnly: true
+  volumes:
+  - name: spiffe-svid
+    csi:
+      driver: csi.spiffe.io
+      readOnly: true
+EOF
+----
+
+Expected result：`serviceaccount/spiffe-demo-sa created` 和 `pod/spiffe-demo created`。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc wait pod spiffe-demo -n "$NS" --for=condition=Ready --timeout=60s
+----
+
+Expected result：`pod/spiffe-demo condition met`。// UNVERIFIED
+
+== 练习 3：注册工作负载（负向控制在前）
+
+在注册前，确认 Pod 的 volume 挂载点为空（没有 SVID）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" spiffe-demo -- ls /run/spiffe/tls/ 2>&1
+----
+
+Expected result：命令输出为空或 `ls: /run/spiffe/tls/: No such file or directory`——证明没有注册条目时 CSI Driver 不会挂载任何内容。// UNVERIFIED
+
+现在创建 SpiffeClusterSPIFFEID 注册条目：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-demo
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/\{{ .PodMeta.Namespace }}/sa/\{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: spiffe-demo
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
+
+Expected result：`clusterspiffeid.spire.spiffe.io/userN-demo created`。// UNVERIFIED
+
+== 练习 4：验证 X.509-SVID 已挂载
+
+等待 CSI Driver 颁发并挂载 SVID（通常 10-30 秒）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" spiffe-demo -- ls -la /run/spiffe/tls/
+----
+
+Expected result：
+----
+tls.crt  tls.key  bundle.crt
+----
+三个文件证明 SPIRE Agent 已完成 Workload Attestation，SVID 成功颁发并通过 CSI Driver 挂载。// UNVERIFIED
+
+== 练习 5：检查 SVID 证书结构
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" spiffe-demo -- \
+  openssl x509 -in /run/spiffe/tls/tls.crt -text -noout | \
+  grep -A3 "Subject Alternative Name"
+----
+
+Expected result：
+----
+        X509v3 Subject Alternative Name:
+            URI:spiffe://{trust_domain}/ns/<你的命名空间>/sa/spiffe-demo-sa
+----
+SAN 字段中的 SPIFFE URI 就是这个工作负载的唯一身份标识。有效期由 SpireServer 的 `defaultX509Validity`（1 小时）控制。// UNVERIFIED
+
+In short: SVID 的 SAN = 工作负载的身份证号。凭此证书，任何 mTLS 对端都可以验证"谁在连接我"。
+
+== 证据检查点
+
+* 注册前和注册后 `/run/spiffe/tls/` 的内容分别是什么？这说明了什么？
+* SVID 的 SAN 字段格式是什么？其中哪些部分来自 SpiffeClusterSPIFFEID 模板？
+* 为什么私钥（`tls.key`）可以安全地放在 Pod 文件系统里？
+
+.参考答案
+[%collapsible]
+====
+* 注册前为空（无 SVID），注册后有三个文件——证明 SPIRE 采用显式注册模型，未注册的工作负载不会获得身份。
+* SAN 格式：`spiffe://<trust-domain>/ns/<namespace>/sa/<serviceaccount>`。Namespace 和 ServiceAccount 来自模板变量。
+* 私钥由 SPIRE Agent 在内存中管理后写入 tmpfs（内存文件系统），不持久化到磁盘；CSI volume 挂载点的内容在 Pod 结束时自动清理。
+====
+
+Proceed to xref:05-module-03-mtls-communication.adoc[模块 3：mTLS 微服务通信].

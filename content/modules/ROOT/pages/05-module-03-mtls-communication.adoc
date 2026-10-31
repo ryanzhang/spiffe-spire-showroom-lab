@@ -1,6 +1,32 @@
-= Module 3: mTLS Microservice Communication
-:navtitle: Module 3: mTLS Communication
+= 模块 3：mTLS 微服务通信
+:navtitle: 模块 3：mTLS 通信
 
-// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+本模块回答的客户问题：*我如何证明只有持有正确 SPIFFE ID 的服务才能建立连接，而其他服务——哪怕来自同一集群——都会被拒绝？*
 
-This module demonstrates mutual TLS between microservices using SVID certificates, with a positive path and a cross-namespace denial control.
+你将部署两个服务（service-a 和 service-b），各自持有独立的 SVID，通过 mTLS 进行通信。然后从 `peer-demo-spire-lab` 命名空间（一个没有注册条目的对照组）发起请求，观察 TLS 握手失败。
+
+// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+
+== 技术背景
+
+SPIFFE mTLS 工作原理：
+
+. 两个服务各自持有 SPIRE 颁发的 X.509-SVID
+. 建立 TLS 连接时，双方互相出示证书
+. 每一方用 `bundle.crt`（SPIRE trust bundle）验证对方证书是否由同一 CA 签发
+. 可选：通过检查 SAN 中的 SPIFFE ID 决定是否允许连接（授权层）
+
+本实验使用 SPIFFE CSI Driver 挂载 SVID，服务代码直接读取文件，不需要任何密钥管理代码。
+
+== 学习目标
+
+* 部署使用 SVID 建立 mTLS 的微服务
+* 验证正向通信：service-a → service-b 成功
+* 验证负向控制：peer-demo 命名空间的 Pod → service-b 被拒绝
+
+== 练习 1：部署 service-b（被调用方）
+
+// UNVERIFIED — 完整步骤待 mTLS 演示方案确认后填写
+// 待定：使用 Envoy sidecar + SPIFFE CSI，还是应用层直接读取 SVID 进行 TLS？
+
+Proceed to xref:06-module-04-jwt-svid-api.adoc[模块 4：JWT-SVID REST API 认证].

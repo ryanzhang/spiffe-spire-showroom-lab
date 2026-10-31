@@ -1,6 +1,47 @@
-= Module 5: SPIRE Agent on VM – PostgreSQL mTLS
-:navtitle: Module 5: VM and PostgreSQL
+= 模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS
+:navtitle: 模块 5：VM 与 PostgreSQL
 
-// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+本模块回答的客户问题：*SPIFFE/SPIRE 的零信任身份体系能否覆盖到 Kubernetes 之外的虚拟机和传统数据库？*
 
-This module extends the SPIFFE/SPIRE trust domain to a non-Kubernetes workload: a PostgreSQL database running in a KubeVirt VM. Participants configure mTLS between an OCP microservice and the database using SVID certificates.
+一个运行在 KubeVirt VM 内的 PostgreSQL 数据库通过 SPIRE Agent 加入信任域。OCP 上的微服务使用 X.509-SVID 证书与 PostgreSQL 建立 mTLS 连接；没有有效 SVID 的客户端连接请求被数据库拒绝。
+
+// DRAFT — UNVERIFIED. 所有步骤在以参与者身份完成实验后更新。
+
+== 技术背景
+
+SPIRE 支持多种非 Kubernetes 环境的节点认证方式：
+
+[cols="1,2",options="header"]
+|===
+| 认证方式 | 适用场景
+
+| `join_token`
+| 实验室、初始引导；一次性令牌，用后即废
+
+| `aws_iid`（EC2 Instance Identity Document）
+| AWS EC2 实例
+
+| `gcp_iit`
+| GCP VM
+
+| `x509pop`（证书弹出）
+| 已有 PKI 基础设施的环境
+|===
+
+本实验使用 `join_token` 方式——Facilitator 预先生成令牌并通过 GitOps 注入 VM。
+
+PostgreSQL 配置说明：
+
+* `ssl = on`：强制所有连接使用 TLS
+* `ssl_ca_file`：指向 SPIRE trust bundle（`bundle.crt`），用于验证客户端证书
+* `pg_hba.conf` 中 `hostssl ... cert`：要求客户端提供有效的 X.509 证书
+
+== 学习目标
+
+* 观察 VM 上的 SPIRE Agent 如何出现在 `agent list` 中
+* 使用 SVID 证书连接 PostgreSQL，验证 `pg_stat_ssl.ssl = true`
+* 在不提供证书的情况下尝试连接，观察连接被拒绝
+
+// UNVERIFIED — 完整步骤待 VM 预部署完成后填写
+
+Proceed to xref:90-cleanup.adoc[清理].

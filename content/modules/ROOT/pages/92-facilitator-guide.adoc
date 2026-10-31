@@ -1,36 +1,95 @@
-= Facilitator Guide
-:navtitle: Facilitator Guide
+= Facilitator 指南
+:navtitle: Facilitator 指南
 
-For facilitators provisioning lab environments ahead of class. Participants
-can skip this page.
+== 部署
 
-== Provision
+=== RHDP 订单
+在 RHDP 平台上用以下参数下单：
 
-*RHDP:* order the Field Content CI with this repository's URL and the path
-`automation/argocd`. The order deploys the Showroom guide and the lab
-prerequisites through OpenShift GitOps.
+* *Catalog Item*：Custom OCP 4 Cluster（或等效）
+* *Content Repo URL*：`https://github.com/ryanzhang/spiffe-spire-showroom-lab.git`
+* *Repo Path*：`automation/argocd`
 
-*Any other OpenShift cluster* with OpenShift GitOps installed, from a
-cluster-admin shell in a checkout of this repository:
+=== 非 RHDP 集群（已有 OpenShift 集群）
 
+. 确认前置条件：
++
 [source,bash]
 ----
+oc get clusterversion          # OCP 4.14+
+oc get csv -n openshift-gitops # OpenShift GitOps 已安装
+oc get sc                       # 存在默认 StorageClass（SPIRE Server 需要 2Gi PVC）
+----
++
+. 克隆 lab repo 并 bootstrap：
++
+[source,bash]
+----
+git clone https://github.com/ryanzhang/spiffe-spire-showroom-lab.git
+cd spiffe-spire-showroom-lab
 make -C automation bootstrap
-make -C automation status
+----
++
+. 手动安装 Web Terminal Operator（参与者 CLI 工具）：
++
+[source,bash]
+----
+oc apply -f automation/facilitator-prereqs/web-terminal.yaml
 ----
 
-Repeat `status` until every Application shows `Synced` and `Healthy`.
-
-== Verify every cluster
+== 验证所有集群
 
 [source,bash]
 ----
 make -C automation verify
 ----
 
-Every line must print `PASS`. Fix any `FAIL` before participants arrive.
+Expected result：每项检查打印 `PASS`；`Exit code: 0`。// UNVERIFIED
 
-== Day of class
+== 开课当天
 
-* Share the Showroom URL: `oc -n {showroom_namespace} get route showroom`.
-* CHANGE-ME
+. 确认所有 SPIRE pod 就绪：
++
+[source,bash]
+----
+oc get pods -n zero-trust-workload-identity-manager
+----
++
+. 确认 10 个参与者命名空间已创建：
++
+[source,bash]
+----
+oc get ns -l app.kubernetes.io/part-of=spiffe-spire-lab
+----
++
+. 以 user1 身份做一次完整飞行前检查（impersonate）：
++
+[source,bash]
+----
+oc auth can-i get pods -n user1-spire-lab \
+  --as user1 \
+  --as-group system:authenticated \
+  --as-group system:authenticated:oauth
+----
++
+Expected result：`yes`。// UNVERIFIED
++
+. 将 Showroom URL 发给参与者：
++
+[source,bash]
+----
+oc get route -n showroom --no-headers | awk '{print "https://"$2}'
+----
+
+== 模块 3 负向控制说明
+
+`peer-demo-spire-lab` 命名空间由 GitOps 预部署，持有一个没有 SpiffeClusterSPIFFEID 注册条目的 demo pod。这确保"服务 C 被拒绝"的演示不依赖任何参与者的进度。
+
+== 清理
+
+[source,bash]
+----
+make -C automation teardown
+----
+
+查看将被删除的资源：`oc get ns -l app.kubernetes.io/part-of=spiffe-spire-lab --no-headers`

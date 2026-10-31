@@ -1,36 +1,48 @@
-= Cleanup
-:navtitle: Cleanup
+= 清理
+:navtitle: 清理
 
-== Remove what you created
+== 参与者清理
 
-// Participant-created resources only; the GitOps-managed prerequisites stay.
+删除你在命名空间中创建的所有资源：
+
 [source,bash,role="execute",subs="attributes+"]
 ----
-CHANGE-ME
+NS=$(oc whoami)-{lab_ns_suffix}
+oc delete pod spiffe-demo -n "$NS" --ignore-not-found
+oc delete serviceaccount spiffe-demo-sa -n "$NS" --ignore-not-found
+oc delete ClusterSPIFFEID $(oc whoami)-demo --ignore-not-found
 ----
 
-Expected result: CHANGE-ME
-// UNVERIFIED
+Expected result：每行输出 `deleted` 或 `not found`。// UNVERIFIED
 
-== Remove the lab environment (whoever deployed it)
+验证你的命名空间已清空：
 
-Only the person who ran the bootstrap, or the RHDP order, removes the
-environment. From a cluster-admin shell in a checkout of this repository,
-first look at what the teardown will
-delete. Every Application listed goes, along with everything it created:
-
-[source,bash,subs="attributes+"]
+[source,bash,role="execute",subs="attributes+"]
 ----
-make -C automation status
-oc get namespace {lab_namespace} {showroom_namespace}
+oc get all -n "$NS"
 ----
 
-Then delete it and confirm the namespaces are gone:
+Expected result：`No resources found in <ns> namespace.` // UNVERIFIED
 
-[source,bash,subs="attributes+"]
+== Facilitator 清理
+
+[WARNING]
+====
+以下步骤会删除整个 SPIRE 部署和所有参与者命名空间，请在所有参与者完成实验后执行。
+====
+
+在已克隆 lab repo 的目录下运行：
+
+[source,bash]
 ----
 make -C automation teardown
-oc get namespace {lab_namespace} {showroom_namespace}
 ----
 
-The last command reports both namespaces `NotFound` once deletion completes.
+这会删除父 Argo CD Application，级联删除所有子 Application 及其管理的资源（user1-10-spire-lab、zero-trust-workload-identity-manager 等命名空间）。
+
+在删除前确认将被删除的资源：
+
+[source,bash]
+----
+oc get ns -l app.kubernetes.io/part-of=spiffe-spire-lab --no-headers
+----

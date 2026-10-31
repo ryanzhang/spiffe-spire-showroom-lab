@@ -1,0 +1,75 @@
+# Gives lab participants read access to SPIRE shared components.
+# Role (namespaced): pods + spire-bundle ConfigMap in the operator namespace.
+# ClusterRole (cluster-scoped): ZeroTrustWorkloadIdentityManager and sub-CRs.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-lab-viewer
+  namespace: {{ .Values.lab.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["spire-bundle"]
+    verbs: ["get"]
+---
+{{- range .Values.participants.users }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-lab-viewer-{{ . }}
+  namespace: {{ $.Values.lab.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-lab-viewer
+subjects:
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-lab-cr-viewer
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups: ["operator.openshift.io"]
+    resources:
+      - zerotrustworkloadidentitymanagers
+      - spireservers
+      - spireagents
+      - spiffecsidrivers
+      - spireoidcdiscoveryproviders
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources:
+      - clusterspiffeids
+      - clusterstaticentries
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-lab-cr-viewer
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-lab-cr-viewer
+subjects:
+{{- range .Values.participants.users }}
+  - kind: User
+    name: {{ . }}
+    apiGroup: rbac.authorization.k8s.io
+{{- end }}

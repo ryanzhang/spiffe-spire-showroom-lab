@@ -1,73 +1,76 @@
-= Prerequisites and Environment
-:navtitle: Prerequisites and Environment
+= 前置条件与环境准备
+:navtitle: 前置条件与环境准备
 
-== What you need
-
-|===
-| Role | Requirement
-
-| Every participant
-| An OpenShift user account and password (provided in your RHDP order email).
-
-| Every participant
-| A browser with access to the OpenShift Console (link in your RHDP order).
-|===
-
-Provided by the facilitator:
-
-* A shared OpenShift cluster with the SPIRE stack deployed via OpenShift GitOps.
-* One OpenShift user account per participant (`user1` through `user10`).
-* The SPIRE trust domain and cluster domain (printed on this Showroom page).
-
-[NOTE]
-====
-This lab uses the OpenShift Web Terminal for all CLI commands.
-There is no built-in Showroom terminal — you will open one inside the OpenShift Console.
-====
-
-== Open your terminal
-
-. Log in to the OpenShift Console using the URL and credentials in your RHDP order.
-. In the top navigation bar, click the *>_* (Web Terminal) icon.
-. If prompted to select a project, enter `default`.
-+
-Expected result: A terminal panel opens at the bottom of the console window. // UNVERIFIED
-
-== Run the pre-flight check
-
-Paste these lines into your Web Terminal to set your personal namespace and verify access:
-
-[source,bash]
-----
-NS=$(oc whoami)-spire-lab
-echo "Your namespace: $NS"
-oc get namespace "$NS"
-oc auth can-i get pods -n "$NS"
-oc auth can-i get pods -n {spire_operator_ns}
-----
-
-Expected result: `echo` prints `Your namespace: userN-spire-lab`; the namespace is `Active`; both `auth can-i` lines print `yes`. // UNVERIFIED
-
-[IMPORTANT]
-====
-Every command in this lab uses the `$NS` variable for your personal namespace.
-Re-run `NS=$(oc whoami)-spire-lab` if you open a new terminal tab.
-====
-
-== Access details
+== 你需要准备什么
 
 [cols="1,2",options="header"]
 |===
-| Setting | Value
+| 角色 | 需要的东西
 
-| Your personal namespace
-| `$(oc whoami)-spire-lab` (derived at login)
+| 每位参与者
+| OpenShift 用户账号和密码（在你的 RHDP 订单邮件中）
 
-| Shared SPIRE components namespace
-| `{lab_namespace}`
+| 每位参与者
+| 浏览器，能访问 OpenShift Console（链接在 RHDP 订单中）
+|===
+
+由 Facilitator 提供：
+
+* 已通过 OpenShift GitOps 部署 SPIRE 全套组件的共享集群
+* 每位参与者一个 OpenShift 账号（user1 到 user10）
+* SPIRE trust domain：`{trust_domain}`
+* 集群 Console：link:https://console-openshift-console.{cluster_domain}[console-openshift-console.{cluster_domain}^]
+
+[NOTE]
+====
+本实验使用 OpenShift Web Terminal 执行所有命令。Showroom 没有内置 terminal — 你将在 OpenShift Console 内打开 Web Terminal。
+====
+
+== 打开你的 Terminal
+
+. 用 RHDP 订单中的 URL 和账号密码登录 OpenShift Console。
+. 在顶部导航栏点击 *>_*（Web Terminal）图标。
+. 如果提示选择项目，输入 `default`。
++
+Expected result: Console 底部出现 terminal 面板。// UNVERIFIED
+
+== 运行飞行前检查
+
+将以下命令粘贴到 Web Terminal，设置你的命名空间并验证权限：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+echo "你的命名空间：$NS"
+oc get namespace "$NS"
+oc auth can-i get pods -n "$NS"
+oc auth can-i get ZeroTrustWorkloadIdentityManager --subresource="" -n ""
+----
+
+Expected result：`echo` 打印 `你的命名空间：userN-{lab_ns_suffix}`；namespace 状态为 `Active`；两个 `auth can-i` 均打印 `yes`。// UNVERIFIED
+
+[IMPORTANT]
+====
+本实验所有命令都使用 `$NS` 变量引用你的私有命名空间。开新 terminal 标签后需重新运行 `NS=$(oc whoami)-{lab_ns_suffix}`。
+====
+
+== 访问信息
+
+[cols="1,2",options="header"]
+|===
+| 项目 | 值
+
+| 你的私有命名空间
+| `$(oc whoami)-{lab_ns_suffix}`（登录后动态生成）
+
+| SPIRE 组件命名空间（共享）
+| `{spire_operator_ns}`
+
+| SPIRE Trust Domain
+| `{trust_domain}`
 
 | OpenShift Console
 | link:https://console-openshift-console.{cluster_domain}[console-openshift-console.{cluster_domain}^]
 |===
 
-Proceed to xref:03-module-01-spire-deployment.adoc[Module 1: Exploring the SPIRE Deployment].
+Proceed to xref:03-module-01-spire-deployment.adoc[模块 1：观察 SPIRE 部署].

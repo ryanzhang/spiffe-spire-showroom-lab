@@ -1,35 +1,94 @@
-= Architecture and Control Boundaries
-:navtitle: Architecture and Control Boundaries
+= 架构概览与零信任模型
+:navtitle: 架构概览
 
-== Control questions
+== 本实验回答的核心问题
 
-// The questions a customer asks before adopting this; each module answers one with evidence.
-* *CHANGE-ME?*
+[cols="1,2",options="header"]
+|===
+| 客户问题 | 本实验给出的证据
 
-== The stack
+| 我的服务如何在不使用 Secret 的情况下证明自己的身份？
+| 通过 SpiffeClusterSPIFFEID 注册的工作负载，从 SPIFFE CSI Driver 挂载卷中获取 X.509-SVID；证书的 SAN 字段包含 SPIFFE ID，由 SPIRE Server CA 签名。
+
+| 如何确保只有授权的服务才能建立 mTLS 连接？
+| 模块 3 演示：持有正确 SPIFFE ID 的服务 A 成功连接服务 B；来自 `peer-demo-spire-lab` 命名空间的服务 C 在 TLS 握手阶段被拒绝。
+
+| SPIFFE/SPIRE 如何扩展到 Kubernetes 之外的虚拟机？
+| 模块 5 演示：KubeVirt VM 上运行 SPIRE Agent，通过 join_token 完成节点认证，PostgreSQL 使用 SVID 证书进行 mTLS 客户端验证。
+|===
+
+== 技术栈
 
 [cols="1,2,3",options="header"]
 |===
-| Layer | Component | Responsibility
+| 层 | 组件 | 职责
 
-| CHANGE-ME
-| CHANGE-ME
-| CHANGE-ME
+| 标准层
+| SPIFFE 规范
+| 定义 SPIFFE ID（URI 格式）、X.509-SVID 和 JWT-SVID 的结构
+
+| 运行时层
+| SPIRE Server
+| 维护信任域，签发 SVID，管理 trust bundle，对外暴露 bundle endpoint
+
+| 节点层
+| SPIRE Agent
+| 在每个节点上运行（DaemonSet），完成节点认证，向 workload 提供 Workload API
+
+| 挂载层
+| SPIFFE CSI Driver
+| 将 SVID（私钥 + 证书 + bundle）作为 volume 挂载到 Pod 中，透明地自动轮换
+
+| 发现层
+| SPIRE OIDC Discovery Provider
+| 将 SPIRE 的公钥发布为 OIDC 标准 endpoint，使任何支持 OIDC 的系统可以验证 JWT-SVID
+
+| 管理层
+| ZeroTrustWorkloadIdentityManager Operator
+| 协调上述所有组件的生命周期；单个 CR 管理全部 SPIRE 部署
 |===
 
-== CHANGE-ME the one distinction to understand
+== 唯一需要掌握的核心区别
 
-CHANGE-ME
+*SVID 不是密钥，是身份证明。*
 
-== Lab progression
+传统方案把 API Key 或 Token 放在 Secret 里，一旦泄漏就是永久性的。SPIRE 的 X.509-SVID：
 
-=== 1. CHANGE-ME
+* 有效期极短（本实验配置为 1 小时），到期自动轮换
+* 私钥从不离开节点，由 SPIRE Agent 在内存中管理
+* 身份来自 SPIFFE ID（`spiffe://<trust-domain>/ns/<ns>/sa/<sa>`），而不是静态字符串
 
-CHANGE-ME
+== 实验进程
 
-== Interpretation guardrails
+=== 1. 观察 SPIRE 部署
+从 ZeroTrustWorkloadIdentityManager Operator 的状态读起：确认 Server、Agent、CSI Driver 全部就绪，读取 trust bundle 的 CA 信息。
 
-// What the lab does not claim, and the evidence needed before claiming it.
-CHANGE-ME
+=== 2. 工作负载注册与 X.509-SVID
+在你的命名空间部署一个测试 Pod，创建 SpiffeClusterSPIFFEID 注册条目，观察 CSI Driver 将 SVID 挂载到 Pod 中，用 openssl 检查证书结构。
 
-Continue with xref:02-details.adoc[Prerequisites and Environment].
+=== 3. mTLS 微服务通信
+部署两个服务（service-a 和 service-b），各自持有独立的 SVID。验证 mTLS 正向通路，然后从 `peer-demo-spire-lab`（没有有效注册条目）发起请求，观察 TLS 握手失败。
+
+=== 4. JWT-SVID REST API 认证
+通过 Workload API 获取 JWT-SVID，携带该 Token 调用 REST API；API 通过 SPIRE OIDC Discovery Provider 验证 Token，无效或过期 Token 返回 HTTP 401。
+
+=== 5. VM 上的 SPIRE Agent — PostgreSQL mTLS
+KubeVirt VM 上的 SPIRE Agent 通过 join_token 完成节点认证，PostgreSQL 配置 `ssl_ca_file` 指向 SPIRE trust bundle，OCP 微服务使用 SVID 证书连接数据库，无证书连接被 `pg_hba.conf` 拒绝。
+
+== 本实验不能证明什么
+
+[cols="1,2",options="header"]
+|===
+| 常见误解 | 实际边界
+
+| SPIRE 替代网络隔离
+| SPIRE 提供身份层；你仍然需要 NetworkPolicy 控制流量路径
+
+| JWT-SVID 适合所有场景
+| JWT-SVID 适合 HTTP API；长连接数据库和 gRPC 更适合 X.509-SVID
+
+| 本实验覆盖联邦信任域
+| 跨 trust domain 联邦（Federation）不在本实验范围内
+|===
+
+Proceed to xref:02-details.adoc[前置条件与环境准备].

@@ -1,93 +1,157 @@
-= Module 1: Exploring the SPIRE Deployment
-:navtitle: Module 1: SPIRE Deployment
+= 模块 1：观察 SPIRE 部署
+:navtitle: 模块 1：SPIRE 部署
 
-// DRAFT — UNVERIFIED. All steps must be verified on a live cluster before removing this marker.
+本模块围绕一个核心客户问题：*当我告诉团队"零信任身份体系已就绪"时，我能给出哪些可观察的证据？*
 
-// Why this matters: before participants can use SPIFFE identities, they need to understand
-// what the Zero Trust Workload Identity Manager Operator has deployed and how SPIRE components
-// relate to one another. This module answers: "How do I know SPIRE is healthy and ready?"
+你将通过命令行检查 SPIRE 各组件的运行状态，读取 trust bundle，并确认节点认证已完成——这是后续所有练习的基础。
 
-In this module you CHANGE-ME.
-
-.New to CHANGE-ME?
+.刚接触 SPIFFE/SPIRE？
 [%collapsible]
 ====
-// Up to five terms, one sentence each.
-* *CHANGE-ME* — CHANGE-ME
+* *Trust Domain* — 信任域，本实验为 `{trust_domain}`。所有 SVID 的 SPIFFE ID 都以 `spiffe://{trust_domain}/` 开头。
+* *SVID* — SPIFFE Verifiable Identity Document，工作负载的加密身份证明，分 X.509 和 JWT 两种格式。
+* *Trust Bundle* — SPIRE Server CA 的根证书，工作负载用它验证对方的 SVID。
+* *Node Attestation* — SPIRE Agent 启动时向 Server 证明自己运行在受信任节点上的过程；本实验使用 k8s_psat（Projected Service Account Token）方式。
+* *Workload Attestation* — SPIRE Agent 验证 Pod 身份的过程，通过匹配 Kubernetes 元数据（namespace、ServiceAccount）。
 ====
 
-== Technical context
+== 技术背景
 
-// The mechanism the exercises prove. Define jargon in parentheses at first use.
-CHANGE-ME
+ZeroTrustWorkloadIdentityManager Operator 管理以下四个子组件：
 
-== Learning objectives
+[cols="1,2",options="header"]
+|===
+| 组件 | 职责
 
-* CHANGE-ME
+| SpireServer
+| 维护信任域、签发 SVID、暴露 bundle endpoint
 
-== Exercise 1: CHANGE-ME
+| SpireAgent（DaemonSet）
+| 在每个节点上完成节点认证，向 Pod 分发 SVID（通过 Unix socket）
 
-// What state changes, and why.
-CHANGE-ME
+| SpiffeCSIDriver（DaemonSet）
+| 将 SVID 作为 volume 挂载到 Pod，自动轮换
 
-// When a step applies a manifest: show its key fields with callouts (five at most), then apply it below.
-[source,yaml,subs="attributes+"]
-----
-metadata:
-  name: CHANGE-ME                  # <1>
-  namespace: {lab_namespace}       # <2>
-----
-<1> *Name* — CHANGE-ME one sentence on why this field matters.
-<2> *Namespace* — your lab namespace; every command in this module targets it.
+| SpireOIDCDiscoveryProvider
+| 发布 OIDC 端点，让外部系统验证 JWT-SVID
+|===
+
+== 学习目标
+
+* 解释 ZeroTrustWorkloadIdentityManager CR 的状态含义
+* 从 spire-bundle ConfigMap 中读取 CA 信息
+* 确认 SPIRE Agent 已完成节点认证（k8s_psat）
+
+== 练习 1：验证 SPIRE Operator 整体状态
+
+ZeroTrustWorkloadIdentityManager CR 聚合了四个子组件的健康状态。
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc -n {lab_namespace} get pods
+oc get ZeroTrustWorkloadIdentityManager cluster \
+  -o jsonpath='{range .status.conditions[*]}{.type}{": "}{.status}{"\n"}\{end}'
 ----
 
-Expected result: CHANGE-ME — the observed field or value, and what it proves.
-// UNVERIFIED
-
-In short: CHANGE-ME
-
-.The scripted assertion for this exercise
-[%collapsible]
-====
-[source,bash,subs="attributes+"]
+Expected result：
 ----
-(
-test "$(oc -n {lab_namespace} get pods --no-headers | wc -l)" -gt 0 ||
-  { echo "FAIL: no pods in {lab_namespace}"; exit 1; }
-echo PASS
-)
+Ready: True
+OperandsAvailable: True
 ----
-====
+两行均为 `True` 证明 SpireServer、SpireAgent、SpiffeCSIDriver、SpireOIDCDiscoveryProvider 全部就绪。
 
-GUI view: CHANGE-ME where the same evidence appears in the OpenShift Console tab.
+In short: Operator 状态是整个零信任身份体系的"总健康指标"。
 
-== Exercise 2: CHANGE-ME the negative control
+---
 
-// The action that must fail, or a break-and-restore.
-CHANGE-ME
+检查各组件 Pod：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc -n {lab_namespace} get pods
+oc get pods -n {spire_operator_ns} \
+  --no-headers \
+  -o custom-columns='名称:.metadata.name,状态:.status.phase,就绪:.status.containerStatuses[0].ready'
 ----
 
-Expected result: CHANGE-ME
-// UNVERIFIED
+Expected result：// UNVERIFIED — 以参与者身份运行后填写
+----
+spire-server-0                Running   true
+spire-agent-*（5 个）        Running   true
+spire-spiffe-csi-driver-*（5 个）  Running   true
+spire-spiffe-oidc-discovery-provider-*  Running   true
+----
 
-== Evidence checkpoint
+[NOTE]
+====
+参与者账号需要 `{spire_operator_ns}` 命名空间的 `get/list pods` 权限。如果命令返回 Forbidden，请告知 Facilitator。
+====
 
-Before continuing, verify that you can answer:
+== 练习 2：读取 Trust Bundle
 
-* CHANGE-ME?
+Trust Bundle 是信任链的起点——所有工作负载用它验证对方的 SVID 是否由本集群的 SPIRE Server 签发。
 
-.Answer key
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get cm spire-bundle -n {spire_operator_ns} \
+  -o jsonpath='{.data.bundle\.crt}' | \
+  openssl x509 -text -noout | \
+  grep -E "Issuer:|Not Before:|Not After :"
+----
+
+Expected result：
+----
+        Issuer: C=US, O=Red Hat, CN=SPIRE Server CA, serialNumber=...
+            Not Before: Oct 31 06:28:24 2026 GMT
+            Not After : Nov 30 06:28:24 2026 GMT
+----
+`Issuer` 为 `CN=SPIRE Server CA` 证明证书由本集群的 SPIRE Operator 颁发，有效期 30 天。
+
+In short: Trust Bundle 是信任域的"根证书"，所有 SVID 验证都始于它。
+
+.深入：bundle 如何分发到工作负载？
 [%collapsible]
 ====
-* CHANGE-ME
+SPIRE Agent 通过 Workload API（Unix socket）向 Pod 推送 trust bundle。SpiffeCSIDriver 在挂载 volume 时，将 `bundle.crt` 写入 Pod 文件系统（通常在 `/run/spiffe/tls/`）。bundle 定期轮换，CSI Driver 自动更新文件内容，无需重启 Pod。
 ====
 
-Proceed to xref:90-cleanup.adoc[Cleanup].
+== 练习 3：确认节点认证已完成
+
+本练习以 Facilitator 身份演示（需要 `oc exec` 权限进入 spire-server 容器）。Facilitator 运行以下命令并展示输出：
+
+[source,bash]
+----
+oc exec -n {spire_operator_ns} spire-server-0 -c spire-server -- \
+  /spire-server agent list
+----
+
+Expected result（Facilitator 演示）：
+----
+Found 5 attested agents:
+
+SPIFFE ID         : spiffe://{trust_domain}/spire/agent/k8s_psat/cluster-vtmrn-tq9ck/<node-uid>
+Attestation type  : k8s_psat
+Expiration time   : 2026-10-31 07:56:42 +0000 UTC
+Can re-attest     : true
+Agent version     : 1.14.7
+...（5 个 agent，对应 5 个节点）
+----
+5 个 agent 分别对应 3 个 master 节点和 2 个 worker 节点。`k8s_psat` 表示每个 agent 通过 Kubernetes Projected Service Account Token 完成了节点身份认证。
+
+In short: 每个节点上都有一个已认证的 SPIRE Agent，这是向 Pod 分发 SVID 的前提。
+
+== 证据检查点
+
+完成本模块后，你应该能回答：
+
+* SPIRE Server 和 SPIRE Agent 各自的职责是什么？它们通过什么通信？
+* Trust Bundle 存放在哪里？工作负载如何获取它？
+* `k8s_psat` 节点认证方式依赖 Kubernetes 的什么机制？
+
+.参考答案
+[%collapsible]
+====
+* *Server vs Agent*：Server 是中央 CA，管理信任域和 SVID 颁发；Agent 运行在每个节点上，通过 Unix socket 向 Pod 提供 Workload API。两者通过 gRPC 通信，Agent 先向 Server 完成节点认证。
+* *Trust Bundle*：存储在 `{spire_operator_ns}` 命名空间的 `spire-bundle` ConfigMap 中；SpiffeCSIDriver 在挂载 volume 时将其写入 Pod 文件系统，Workload API 也可直接获取。
+* *k8s_psat*：依赖 Kubernetes API Server 签发的 Projected Service Account Token（有受众限制），Agent 用该 token 向 Server 证明"我运行在一个合法的 Kubernetes 节点上"。
+====
+
+Proceed to xref:04-module-02-workload-registration.adoc[模块 2：工作负载注册与 X.509-SVID].

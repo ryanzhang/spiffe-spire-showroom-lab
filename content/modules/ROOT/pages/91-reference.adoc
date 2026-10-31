@@ -1,33 +1,64 @@
-= Technical Reference
-:navtitle: Technical Reference
+= 技术参考
+:navtitle: 技术参考
 
-== What each project contributes
-
-[cols="1,3",options="header"]
-|===
-| Project | Use it for
-
-| link:https://CHANGE-ME[CHANGE-ME^]
-| CHANGE-ME
-|===
-
-== Evidence interpretation
+== 上游项目贡献
 
 [cols="1,2,2",options="header"]
 |===
-| Topic | Supported interpretation | Required evidence
+| 项目 | 贡献 | 文档
 
-| CHANGE-ME
-| CHANGE-ME
-| CHANGE-ME
+| SPIFFE 规范
+| SPIFFE ID、X.509-SVID、JWT-SVID、Trust Bundle 格式定义
+| link:https://github.com/spiffe/spiffe[github.com/spiffe/spiffe^]
+
+| SPIRE
+| SPIFFE 规范的参考实现；本实验使用版本 1.14.7
+| link:https://spiffe.io/docs/latest/spire-about/[spiffe.io/docs^]
+
+| Red Hat Zero Trust Workload Identity Manager Operator
+| 在 OpenShift 上管理 SPIRE 生命周期；CSV v1.1.2，channel stable-v1
+| link:https://docs.redhat.com/en/documentation/red_hat_zero_trust_workload_identity_manager[Red Hat 文档^]
+
+| SPIFFE CSI Driver
+| 将 SVID 作为 Kubernetes volume 挂载，透明轮换
+| link:https://github.com/spiffe/spiffe-csi[github.com/spiffe/spiffe-csi^]
 |===
 
-== What this lab does not prove
+== 证据解读
 
-* CHANGE-ME
+[cols="1,2,2",options="header"]
+|===
+| 主题 | 支持的解读 | 需要的证据
 
-== Sources and further reading
+| SPIRE 部署健康
+| ZeroTrustWorkloadIdentityManager.status.conditions.Ready = True
+| `oc get ZeroTrustWorkloadIdentityManager cluster`
 
-// The product doc sections each module follows (see page-set.md, Grounding).
-* Module 1: link:https://docs.redhat.com/CHANGE-ME[CHANGE-ME doc section^]
-* link:https://CHANGE-ME[CHANGE-ME^]
+| 节点认证完成
+| 每个 OCP 节点有一个 k8s_psat 认证的 agent
+| `/spire-server agent list`（Facilitator 演示）
+
+| SVID 成功颁发
+| Pod 的 `/run/spiffe/tls/tls.crt` SAN 包含正确的 SPIFFE URI
+| `openssl x509 -text`
+
+| mTLS 正向通信
+| HTTP 200 响应，连接建立时双方均出示了有效 SVID
+| 请求日志 + TLS 握手记录
+
+| mTLS 负向控制
+| TLS handshake failure，未持有有效 SVID 的客户端被拒绝
+| 具体错误消息（TLS alert）
+|===
+
+== 本实验不能证明什么
+
+* SPIRE 可以替代 NetworkPolicy — SPIRE 提供身份层，流量路径控制仍需 NetworkPolicy
+* X.509-SVID 适合所有场景 — 短连接 REST API 更适合 JWT-SVID
+* Trust Domain 联邦 — 跨集群的 Federation 不在本实验范围内
+
+== 延伸阅读
+
+* link:https://spiffe.io/docs/latest/spiffe-about/overview/[SPIFFE 规范概览^]
+* link:https://spiffe.io/docs/latest/spire-about/spire-concepts/[SPIRE 核心概念^]
+* link:https://docs.redhat.com/en/documentation/red_hat_zero_trust_workload_identity_manager[Red Hat Zero Trust Workload Identity Manager 文档^]
