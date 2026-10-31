@@ -22,4 +22,4 @@ asciidoc:
     # Per-user namespace suffix: each participant's namespace is $(oc whoami)-{lab_ns_suffix}
     lab_ns_suffix: 'spire-lab'
     showroom_namespace: 'showroom'
-    trust_domain: 'cluster.local'
+    trust_domain: 'cluster-vtmrn.spire.local'

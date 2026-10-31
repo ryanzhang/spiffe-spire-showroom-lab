@@ -4,3 +4,8 @@ argocdNamespace: openshift-gitops
 partOf: ""
 deployer:
   domain: ""
+spire:
+  # oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}'
+  clusterName: "cluster-vtmrn-tq9ck"
+  # Custom trust domain for SPIFFE SVIDs in this lab. Format: <infra-name>.spire.local
+  trustDomain: "cluster-vtmrn.spire.local"

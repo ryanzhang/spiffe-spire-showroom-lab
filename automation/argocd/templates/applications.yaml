@@ -116,6 +116,9 @@ spec:
         partOf: {{ .Release.Name | quote }}
         deployer:
           domain: {{ .Values.deployer.domain | quote }}
+        spire:
+          clusterName: {{ .Values.spire.clusterName | quote }}
+          trustDomain: {{ .Values.spire.trustDomain | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.lab.namespace }}

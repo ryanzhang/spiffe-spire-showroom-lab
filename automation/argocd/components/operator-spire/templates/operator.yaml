@@ -29,14 +29,16 @@ spec:
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 ---
-# ZeroTrustWorkloadIdentityManager CR deploys SPIRE Server, Agent, and CSI Driver.
-# installedCSV: // UNVERIFIED — record after first live sync
+# ZeroTrustWorkloadIdentityManager is a Cluster-scoped CR (no namespace).
+# It deploys SPIRE Server, Agent, and CSI Driver into .Values.lab.namespace.
+# installedCSV: zero-trust-workload-identity-manager.v1.1.2 (verified 2026-10-31)
 apiVersion: operator.openshift.io/v1alpha1
 kind: ZeroTrustWorkloadIdentityManager
 metadata:
   name: cluster
-  namespace: {{ .Values.lab.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "10"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-spec: {}
+spec:
+  clusterName: {{ .Values.spire.clusterName | quote }}
+  trustDomain: {{ .Values.spire.trustDomain | quote }}

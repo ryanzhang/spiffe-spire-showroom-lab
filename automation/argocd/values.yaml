@@ -20,6 +20,12 @@ prereqs:
 operatorSpire:
   enabled: true
 
+spire:
+  # Verified 2026-10-31 on cluster-vtmrn; update per deployment.
+  # oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}'
+  clusterName: "cluster-vtmrn-tq9ck"
+  trustDomain: "cluster-vtmrn.spire.local"
+
 operatorWebTerminal:
   # Disabled: openshift-operators is a system namespace; bootstrap refuses to
   # label it as lab-owned. Install Web Terminal manually as a facilitator prereq
