@@ -2,10 +2,10 @@
 # Wave 1:  OperatorGroup + Subscription (OLM provisions immediately).
 # Wave 10: All cluster-scoped CRs — created only after CSV Succeeded.
 #          ZeroTrustWorkloadIdentityManager aggregates status from the sub-CRs.
-#          Sub-CRs (SpireServer/Agent/CSI/OIDC) are created alongside it;
-#          the operator deploys the actual pods when it sees each sub-CR.
-# SkipDryRunOnMissingResource=true on every wave-10+ resource: the CRDs
-# arrive with the CSV and must not block a dry-run before that.
+# SkipDryRunOnMissingResource=true: CRDs arrive with the CSV and must not
+# block a dry-run before that.
+#
+# Verified 2026-10-31 on OCP 4.22.20, CSV zero-trust-workload-identity-manager.v1.1.2
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -33,7 +33,6 @@ spec:
   sourceNamespace: openshift-marketplace
 ---
 # High-level orchestrator; aggregates Ready status from the four sub-CRs below.
-# installedCSV: zero-trust-workload-identity-manager.v1.1.2 (verified 2026-10-31)
 apiVersion: operator.openshift.io/v1alpha1
 kind: ZeroTrustWorkloadIdentityManager
 metadata:
@@ -45,8 +44,9 @@ spec:
   clusterName: {{ .Values.spire.clusterName | quote }}
   trustDomain: {{ .Values.spire.trustDomain | quote }}
 ---
-# Deploys the SPIRE Server StatefulSet.
-# trustDomain must match ZeroTrustWorkloadIdentityManager.spec.trustDomain.
+# Deploys the SPIRE Server StatefulSet with SQLite3 datastore.
+# jwtIssuer must match SpireOIDCDiscoveryProvider.spec.jwtIssuer and the Route URL.
+# persistence.storageClass: "" uses the cluster default StorageClass.
 apiVersion: operator.openshift.io/v1alpha1
 kind: SpireServer
 metadata:
@@ -58,11 +58,27 @@ spec:
   trustDomain: {{ .Values.spire.trustDomain | quote }}
   caKeyType: rsa-2048
   caSubject:
-    name: {{ .Values.spire.trustDomain | quote }}
-  bundleEndpointProfile: https_web
+    commonName: "SPIRE Server CA"
+    country: "US"
+    organization: "Red Hat"
+  caValidity: "24h"
+  defaultJWTValidity: "5m"
+  defaultX509Validity: "1h"
+  jwtIssuer: "https://oidc-discovery.{{ .Values.lab.namespace }}.{{ .Values.deployer.domain }}"
+  logLevel: info
+  logFormat: text
+  datastore:
+    databaseType: sqlite3
+    connectionString: "/run/spire/data/datastore.sqlite3"
+    maxOpenConns: 100
+    maxIdleConns: 2
+  persistence:
+    accessMode: ReadWriteOnce
+    size: 2Gi
+    storageClass: ""
 ---
 # Deploys the SPIRE Agent DaemonSet on every node.
-# k8sPSATEnabled uses Projected Service Account Tokens for node attestation.
+# k8sPSATEnabled: k8s Projected Service Account Token node attestation (OpenShift default).
 apiVersion: operator.openshift.io/v1alpha1
 kind: SpireAgent
 metadata:
@@ -81,6 +97,7 @@ spec:
       type: auto
 ---
 # Deploys the SPIFFE CSI Driver DaemonSet — mounts SVIDs into pods via volume.
+# pluginName: csi.spiffe.io is the standard SPIFFE CSI Driver identifier.
 apiVersion: operator.openshift.io/v1alpha1
 kind: SpiffeCSIDriver
 metadata:
@@ -94,8 +111,7 @@ spec:
 ---
 # Deploys the SPIRE OIDC Discovery Provider — issues JWT-SVIDs validated via OIDC.
 # managedRoute: true — operator creates the OCP Route automatically.
-# jwtIssuer must match the Route URL; constructed from deployer.domain.
-# UNVERIFIED: confirm Route hostname after first sync.
+# jwtIssuer must match SpireServer.spec.jwtIssuer.
 apiVersion: operator.openshift.io/v1alpha1
 kind: SpireOIDCDiscoveryProvider
 metadata:
