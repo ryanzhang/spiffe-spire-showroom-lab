@@ -7,88 +7,96 @@
 |===
 | 客户问题 | 本实验给出的证据
 
-| 我的服务如何在不使用 Secret 的情况下证明自己的身份？
-| 通过 SpiffeClusterSPIFFEID 注册的工作负载，从 SPIFFE CSI Driver 挂载卷中获取 X.509-SVID；证书的 SAN 字段包含 SPIFFE ID，由 SPIRE Server CA 签名。
+| 我的服务如何在不使用静态证书或密钥文件的情况下证明自己的身份？
+| 通过 SpiffeClusterSPIFFEID 注册的工作负载，从 SPIFFE CSI Driver 挂载的卷中获取 X.509-SVID；证书的 SAN 字段包含 SPIFFE URI，由 SPIRE Server CA 基于工作负载的 Kubernetes 元数据实时签发，私钥从不写入磁盘。
 
 | 如何确保只有授权的服务才能建立 mTLS 连接？
-| 模块 3 演示：持有正确 SPIFFE ID 的服务 A 成功连接服务 B；来自 `peer-demo-spire-lab` 命名空间的服务 C 在 TLS 握手阶段被拒绝。
+| 模块 3 演示：持有正确 SPIFFE ID 的服务 A 成功连接服务 B；来自 `peer-demo-spire-lab` 命名空间（无 ClusterSPIFFEID 注册条目）的服务在 TLS 握手阶段被拒绝，拒绝点在网络层，无需应用代码参与。
 
 | SPIFFE/SPIRE 如何扩展到 Kubernetes 之外的虚拟机？
 | 模块 5 演示：KubeVirt VM 上运行 SPIRE Agent，通过 join_token 完成节点认证，PostgreSQL 使用 SVID 证书进行 mTLS 客户端验证。
 |===
 
-== 技术栈
+== 部署拓扑与技术栈
 
-[cols="1,2,3",options="header"]
+每个组件的物理运行位置决定了它能感知什么、不能感知什么：
+
+[cols="1,2,2,2",options="header"]
 |===
-| 层 | 组件 | 职责
-
-| 标准层
-| SPIFFE 规范
-| 定义 SPIFFE ID（URI 格式）、X.509-SVID 和 JWT-SVID 的结构
-
-| 运行时层
-| SPIRE Server
-| 维护信任域，签发 SVID，管理 trust bundle，对外暴露 bundle endpoint
-
-| 节点层
-| SPIRE Agent
-| 在每个节点上运行（DaemonSet），完成节点认证，向 workload 提供 Workload API
-
-| 挂载层
-| SPIFFE CSI Driver
-| 将 SVID（私钥 + 证书 + bundle）作为 volume 挂载到 Pod 中，透明地自动轮换
-
-| 发现层
-| SPIRE OIDC Discovery Provider
-| 将 SPIRE 的公钥发布为 OIDC 标准 endpoint，使任何支持 OIDC 的系统可以验证 JWT-SVID
+| 层 | 组件 | 物理运行位置 | 职责
 
 | 管理层
 | ZeroTrustWorkloadIdentityManager Operator
-| 协调上述所有组件的生命周期；单个 CR 管理全部 SPIRE 部署
+| Deployment，运行在集群任意节点（由调度器决定）&#xa;Namespace: `{spire_operator_ns}`
+| 协调所有 SPIRE 子组件的生命周期；单个 CR 管理整个 SPIRE 部署
+
+| 运行时层
+| SpireServer
+| StatefulSet（1 副本），运行在集群任意节点&#xa;持有 2Gi PVC（SQLite3 数据库）&#xa;Namespace: `{spire_operator_ns}`
+| 维护信任域，为完成节点认证的 Agent 签发 SVID，暴露 trust bundle endpoint
+
+| 发现层
+| SpireOIDCDiscoveryProvider
+| Deployment（1 副本），运行在集群任意节点&#xa;通过 OCP Route 对外暴露&#xa;Namespace: `{spire_operator_ns}`
+| 将 SPIRE Server 的公钥以 OIDC 标准格式发布，使 REST API 可验证 JWT-SVID
+
+| 节点层
+| SpireAgent
+| *DaemonSet — 运行在每个节点上*&#xa;（本实验：3 control plane + 2 worker = 5 个 Pod）
+| 在所在节点上完成节点认证（k8s_psat），通过 Unix socket 向 Pod 提供 Workload API
+
+| 节点层
+| SpiffeCSIDriver
+| *DaemonSet — 运行在每个节点上*&#xa;（本实验：5 个 Pod，与 SpireAgent 共存）
+| 将 SVID（`tls.crt` + `tls.key` + `bundle.crt`）挂载到 Pod 的 volume；证书到期前由 SpireAgent 推送新 SVID，*原地替换文件，无需重启 Pod*
 |===
 
-== 唯一需要掌握的核心区别
+[NOTE]
+====
+*为什么 Agent 和 CSI Driver 必须是 DaemonSet？*
+SVID 通过节点上的 Unix socket（`/tmp/spire-agent/public/spire-agent.sock`）传递。只有与目标 Pod 在同一节点上的 Agent 才能感知该 Pod 的存在并完成 Workload Attestation。CSI Driver 同理，它需要在本地节点挂载卷。
+====
 
-*SVID 不是密钥，是身份证明。*
+== SPIFFE CSI Driver 与 K8s Secrets Store CSI Driver 的区别
 
-传统方案把 API Key 或 Token 放在 Secret 里，一旦泄漏就是永久性的。SPIRE 的 X.509-SVID：
+两者都能将内容以文件形式挂载到 Pod，但身份来源根本不同：
 
-* 有效期极短（本实验配置为 1 小时），到期自动轮换
-* 私钥从不离开节点，由 SPIRE Agent 在内存中管理
-* 身份来自 SPIFFE ID（`spiffe://<trust-domain>/ns/<ns>/sa/<sa>`），而不是静态字符串
-
-== 实验进程
-
-=== 1. 观察 SPIRE 部署
-从 ZeroTrustWorkloadIdentityManager Operator 的状态读起：确认 Server、Agent、CSI Driver 全部就绪，读取 trust bundle 的 CA 信息。
-
-=== 2. 工作负载注册与 X.509-SVID
-在你的命名空间部署一个测试 Pod，创建 SpiffeClusterSPIFFEID 注册条目，观察 CSI Driver 将 SVID 挂载到 Pod 中，用 openssl 检查证书结构。
-
-=== 3. mTLS 微服务通信
-部署两个服务（service-a 和 service-b），各自持有独立的 SVID。验证 mTLS 正向通路，然后从 `peer-demo-spire-lab`（没有有效注册条目）发起请求，观察 TLS 握手失败。
-
-=== 4. JWT-SVID REST API 认证
-通过 Workload API 获取 JWT-SVID，携带该 Token 调用 REST API；API 通过 SPIRE OIDC Discovery Provider 验证 Token，无效或过期 Token 返回 HTTP 401。
-
-=== 5. VM 上的 SPIRE Agent — PostgreSQL mTLS
-KubeVirt VM 上的 SPIRE Agent 通过 join_token 完成节点认证，PostgreSQL 配置 `ssl_ca_file` 指向 SPIRE trust bundle，OCP 微服务使用 SVID 证书连接数据库，无证书连接被 `pg_hba.conf` 拒绝。
-
-== 本实验不能证明什么
-
-[cols="1,2",options="header"]
+[cols="1,2,2",options="header"]
 |===
-| 常见误解 | 实际边界
+| 维度 | K8s Secrets Store CSI Driver | SPIFFE CSI Driver
 
-| SPIRE 替代网络隔离
-| SPIRE 提供身份层；你仍然需要 NetworkPolicy 控制流量路径
+| 身份来源
+| 预配置——管理员显式指定"这个 Pod 去 Vault 的哪个路径取什么"
+| 动态派生——从 Pod 的 namespace + ServiceAccount 推断，无需预配置映射关系
 
-| JWT-SVID 适合所有场景
-| JWT-SVID 适合 HTTP API；长连接数据库和 gRPC 更适合 X.509-SVID
+| 颁发方式
+| 取一个已经存在的 secret（静态值）
+| 实时 Attestation → SPIRE Server 按需签发（动态值）
 
-| 本实验覆盖联邦信任域
-| 跨 trust domain 联邦（Federation）不在本实验范围内
+| 证书格式
+| 任意
+| X.509-SVID（必须含 `spiffe://` URI SAN），格式由 SPIFFE 规范定义
+
+| 证书轮换
+| 依赖外部 vault 设置 + Sidecar 轮询；通常需要 Pod 重启触发重新挂载
+| SpireAgent 主动推送，*原地更新文件*，应用无感知，无需重启
+
+| 私钥处理
+| 私钥内容写入文件（持久化到 tmpfs）
+| 私钥由 SpireAgent 在内存中生成，写入 Pod 的 tmpfs volume，Pod 结束时自动清除
 |===
 
-Proceed to xref:02-details.adoc[前置条件与环境准备].
+== 核心区别：必须能说清楚的一个概念
+
+*SVID 的身份来自"你是谁"，不是"你知道什么"。*
+
+传统方案把证书私钥存在 K8s Secret 里，然后 mount 到 Pod——本质上是"持有这个证书的人就是你"。任何能访问 Secret 的进程都能伪装成该服务。
+
+SPIRE 的 X.509-SVID：
+
+* *身份派生*：SPIFFE ID = `spiffe://{trust_domain}/ns/<namespace>/sa/<serviceaccount>`——来自 Kubernetes 元数据，无法伪造
+* *有效期极短*（本实验配置：1 小时），原地自动轮换，泄漏窗口极短
+* *私钥从不离开节点内存*，SpireAgent 在内存中管理，不写入持久化存储
+* *信任链完整*：SVID + trust bundle 同时下发，mTLS 双方各自验证对方的整条信任链
+
+xref:02-details.adoc[前置条件与环境准备 →]

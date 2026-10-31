@@ -5,13 +5,13 @@
 
 == 本实验研究什么
 
-传统的服务间认证依赖 IP 地址白名单或共享 Secret，这两种方式在云原生环境中都存在根本性缺陷：IP 是可伪造的，Secret 是可泄漏的。
+传统的服务间认证依赖 IP 地址白名单，或将证书和私钥静态存储在 Kubernetes Secret 中——证书一旦泄漏就是长期威胁，轮换需要重启 Pod。
 
 本实验展示如何用 *SPIFFE/SPIRE* 的零信任工作负载身份体系替代上述方案：
 
 * 每个工作负载获得加密签名的 *SVID*（SPIFFE Verifiable Identity Document）
-* SVID 由 SPIRE Server 签发，有效期短，自动轮换
-* 服务间 mTLS 不再依赖任何 Secret 或 IP 配置
+* SVID 由 SPIRE Server 基于工作负载的 Kubernetes 元数据（namespace + ServiceAccount）实时派生并签发，有效期短，原地自动轮换，无需重启 Pod
+* 服务间 mTLS 不再依赖任何静态证书或手工密钥管理
 * 信任边界可跨越 Kubernetes 和虚拟机
 
 == 你将完成的任务
@@ -38,6 +38,23 @@
 ====
 命令完成本身不是证明。请仔细阅读 Expected result，确认你看到了描述的输出。
 ====
+
+== 实验进程
+
+=== 1. 观察 SPIRE 部署（30 分钟）
+从 ZeroTrustWorkloadIdentityManager Operator 的状态读起：确认 Server、Agent、CSI Driver 全部就绪，读取 trust bundle 的 CA 信息。
+
+=== 2. 工作负载注册与 X.509-SVID（45 分钟）
+在你的命名空间部署一个测试 Pod，创建 SpiffeClusterSPIFFEID 注册条目，观察 CSI Driver 将 SVID 原地挂载到 Pod，用 openssl 检查证书结构。
+
+=== 3. mTLS 微服务通信（45 分钟）
+部署两个服务（service-a 和 service-b），各自持有独立的 SVID。验证 mTLS 正向通路，然后从 `peer-demo-spire-lab`（没有有效注册条目）发起请求，观察 TLS 握手失败。
+
+=== 4. JWT-SVID REST API 认证（45 分钟）
+通过 Workload API 获取 JWT-SVID，携带该 Token 调用 REST API；API 通过 SPIRE OIDC Discovery Provider 验证 Token，无效或过期 Token 返回 HTTP 401。
+
+=== 5. VM 上的 SPIRE Agent — PostgreSQL mTLS（60 分钟）
+KubeVirt VM 上的 SPIRE Agent 通过 join_token 完成节点认证，PostgreSQL 配置 `ssl_ca_file` 指向 SPIRE trust bundle，OCP 微服务使用 SVID 证书连接数据库，无证书连接被 `pg_hba.conf` 拒绝。
 
 == 实验地图
 
@@ -76,27 +93,26 @@
 
 *合计：约 4 小时（含 Q&A 缓冲）*
 
-== 技术模型
+== 本实验不能证明什么
 
-[cols="1,2,2",options="header"]
+[cols="1,2",options="header"]
 |===
-| 层 | 组件 | 每层单独无法做什么
+| 常见误解 | 实际边界
 
-| 标准层
-| SPIFFE 规范
-| 只定义格式，不颁发任何身份
+| SPIRE 替代网络隔离
+| SPIRE 提供身份层；你仍然需要 NetworkPolicy 控制流量路径
 
-| 运行时层
-| SPIRE Server
-| 只管理信任域，不感知节点上的工作负载
+| JWT-SVID 适合所有场景
+| JWT-SVID 适合短连接 HTTP API；长连接数据库和 gRPC 更适合 X.509-SVID
 
-| 节点层
-| SPIRE Agent + SPIFFE CSI Driver
-| 只分发 SVID，不决定谁有资格获得
+| X.509-SVID 与传统证书没有区别
+| 传统证书是静态的、手工管理的；X.509-SVID 由 SPIRE 基于工作负载身份实时派生、原地轮换，私钥从不持久化到磁盘
 
-| 管理层
-| ZeroTrustWorkloadIdentityManager Operator
-| 只协调组件，不替代 SPIFFE 信任模型
+| 本实验覆盖联邦信任域
+| 跨 trust domain 联邦（Federation）不在本实验范围内
+
+| SPIFFE CSI Driver 是独有的文件挂载技术
+| 文件挂载本身不是 SPIFFE 独创（K8s Secrets Store CSI Driver 也做到）；SPIFFE 独有的是身份从工作负载属性动态派生 + 原地短周期轮换 + SVID 格式（URI SAN）
 |===
 
 == 开始实验
