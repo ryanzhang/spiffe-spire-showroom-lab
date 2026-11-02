@@ -1,19 +1,18 @@
 = 模块 2：工作负载注册与 X.509-SVID
 :navtitle: 模块 2：工作负载注册
 
-本模块回答的客户问题：*我的 Pod 如何获得一个加密身份，而无需在 Deployment 里硬编码任何证书或密钥？*
+本模块回答的客户问题：*存量应用如何在不修改业务代码的前提下，通过滚动更新接入 SPIFFE 零信任身份体系？*
 
-你将在自己的命名空间注册工作负载身份、部署带有 spiffe-helper sidecar 的测试 Pod，然后检查写入 Pod 共享卷中的 X.509-SVID 证书内容。
+本模块模拟真实改造场景：先以一个普通服务（无 SPIFFE）开始，验证其身份空白状态，然后按顺序完成接入步骤——ConfigMap → ClusterSPIFFEID → 更新 Deployment——最后验证 SVID 证书已就位。
 
 [NOTE]
 ====
 *企业支持声明*：本模块使用的所有组件均为 Red Hat 官方支持的 GA 产品（OCP 4.22+）：
 
 * *Zero Trust Workload Identity Manager Operator*（OperatorHub，`redhat-operators`）— 管理 SPIRE 生命周期
-* *spiffe-helper*（Red Hat 官方支持镜像，需要有效的 Red Hat 订阅）：
-  `registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:<version>`
+* *spiffe-helper*（`registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9`）— 为传统应用写入证书文件
 
-本实验使用 *上游公开镜像*（`ghcr.io/spiffe/spiffe-helper:0.8.0`）进行演示，行为与 Red Hat 支持镜像完全相同（Red Hat 镜像基于相同上游代码构建）。生产环境建议使用 Red Hat 支持镜像以获得完整的企业支持。
+本实验使用上游公开镜像 `ghcr.io/spiffe/spiffe-helper:0.8.0`（行为与 RH 官方镜像相同）。
 
 官方文档：link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/security_and_compliance/zero-trust-workload-identity-manager[OCP 4.22 安全与合规 § 12.9^]
 ====
@@ -23,8 +22,8 @@
 ====
 * *SpiffeClusterSPIFFEID* — 集群范围的 SPIFFE ID 注册条目，通过 Kubernetes 选择器（namespace + ServiceAccount）匹配工作负载。
 * *X.509-SVID* — 包含 SPIFFE URI SAN 的 X.509 证书，私钥由 SPIRE Agent 在内存中管理，不写入磁盘。
-* *SPIFFE CSI Driver*（`csi.spiffe.io`）— 将 SPIRE Agent 的 Workload API *socket*（`/spiffe-workload-api/spire-agent.sock`）挂载到 Pod volume，供 SPIFFE-aware 应用直接调用。CSI Driver **不写入**证书文件。
-* *spiffe-helper*（Red Hat 官方支持镜像）— 读取 Workload API socket，将 X.509-SVID 写成文件，供无法直接调用 Workload API 的传统应用使用。
+* *SPIFFE CSI Driver*（`csi.spiffe.io`）— 将 SPIRE Agent 的 Workload API socket（`/spiffe-workload-api/spire-agent.sock`）挂载到 Pod volume。CSI Driver **不写入**证书文件。
+* *spiffe-helper*（Red Hat 官方支持镜像）— 以 Pod 自身身份调用 Workload API，将 X.509-SVID 写成文件，供传统应用直接读取。
 ====
 
 .扩展阅读：传统 Pod 如何通过证书实现加密通信？
@@ -37,7 +36,7 @@
 . *生成证书*：管理员或 CI/CD 流水线使用 cert-manager 等工具，为每个服务生成证书和私钥（`tls.crt` + `tls.key`），以及共享的 CA 根证书（`ca.crt`）
 . *存储为 Kubernetes Secret*：将证书和私钥存入 `kubernetes.io/tls` 类型的 Secret（etcd 默认明文存储）
 . *挂载到 Pod*：Deployment 通过 volume 将 Secret 挂载到 Pod 文件系统（如 `/etc/tls/`）
-. *服务配置 TLS*：服务进程启动时读取文件，配置 TLS 侦听（Nginx `ssl_certificate`、Go `tls.LoadX509KeyPair` 等）
+. *服务配置 TLS*：服务进程启动时读取文件，配置 TLS 侦听
 . *建立 mTLS*：服务 A 调用服务 B 时，双方出示各自证书，用共享 CA 根证书互相验证
 
 *主要局限：*
@@ -53,94 +52,70 @@
 | cert-manager 可自动续期，但加载新证书通常需要重启 Pod，或实现复杂的热加载逻辑
 
 | 私钥暴露面广
-| 私钥以文件形式存在于 etcd（Secret）和 Pod 文件系统，存在被快照、备份或误读取的风险
+| 私钥以文件形式存在于 etcd（Secret）和 Pod 文件系统
 
 | 规模化困难
-| N 个服务 × M 个环境 = 大量独立证书需要跟踪有效期、手动更新挂载配置
+| N 个服务 × M 个环境 = 大量独立证书需要跟踪有效期
 |===
 
 *cert-manager 解决了什么，还剩什么问题：*
 
-cert-manager 能自动申请、续期、存储证书（需要配置 Issuer / ClusterIssuer），比纯手工管理进步很多。但与 SPIFFE/SPIRE 相比仍有本质差距：
+cert-manager 能自动申请、续期、存储证书，但与 SPIFFE/SPIRE 相比仍有本质差距：
 
 [cols="1,2,2",options="header"]
 |===
 | 维度 | cert-manager | SPIFFE/SPIRE
 
 | 身份来源
-| 管理员预先配置（"这个 Deployment 向这个 Issuer 申请这个域名的证书"）
-| 运行时从工作负载属性动态派生（namespace + ServiceAccount = 工作负载身份）
+| 管理员预先配置（"这个 Deployment 向这个 Issuer 申请证书"）
+| 运行时从工作负载属性动态派生（namespace + ServiceAccount = 身份）
 
 | 证书格式
 | 标准 X.509（CN / DNS SAN）
-| X.509-SVID（SPIFFE URI SAN = `spiffe://<trust-domain>/ns/.../sa/...`）
+| X.509-SVID（SPIFFE URI SAN）
 
-| 每个服务是否需要预配置
+| 每个服务预配置
 | ✅ 必须声明 `Certificate` CR
-| ❌ 只需一条 `SpiffeClusterSPIFFEID` 选择器，不需要逐服务配置
-
-| 跨平台（VM / 裸机）
-| 复杂，需要额外集成
-| 原生支持（SPIRE Agent 多种 attestation 机制）
-
-| 外部 Issuer 依赖
-| 必须（Vault、Let's Encrypt 或自建 CA）
-| 无——SPIRE Server 本身就是信任域内的 CA
+| ❌ 只需 `SpiffeClusterSPIFFEID` 选择器
 
 | 轮换无需重启
-| 需要额外配置（cert-manager CSI driver + 应用热加载）
-| 原生支持，spiffe-helper sidecar 原地更新文件，应用无感知
+| 需要额外配置
+| spiffe-helper sidecar 原地更新，应用无感知
 |===
 
 [NOTE]
 ====
-cert-manager 和 SPIFFE 并不互斥——`cert-manager-csi-driver-spiffe` 项目可以用 cert-manager 作为 SPIRE SVID 的签发后端，适合已有 cert-manager 基础设施的团队。
+cert-manager 和 SPIFFE 并不互斥——`cert-manager-csi-driver-spiffe` 可用 cert-manager 作为 SPIRE SVID 的签发后端。
 ====
-
-*SPIFFE/SPIRE 改变的是什么：*
-
-SPIFFE 不替换 TLS 协议本身，而是改变了"谁有资格获得证书"的决策机制——从"谁持有 Secret 文件"或"谁向 Issuer 申请了这个名字的证书"变为"谁是这个经过 Workload Attestation 的 Kubernetes 工作负载"。私钥在内存中生成，有效期缩短到 1 小时，sidecar 原地轮换无需重启 Pod。
 ====
 
 == 技术背景
 
 === SPIFFE CSI Driver 的角色
 
-SPIFFE CSI Driver（`csi.spiffe.io`）挂载 SPIRE Agent 的 Workload API *socket* 到 Pod volume，供应用直接调用。它 **不写入** `svid.pem`、`svid.key`、`svid_bundle.pem` 等证书文件。
+SPIFFE CSI Driver（`csi.spiffe.io`）挂载 SPIRE Agent 的 Workload API socket 到 Pod volume，供 SPIFFE-aware 应用直接调用。它**不写入**证书文件。
 
 === spiffe-helper 的角色
 
-对于无法直接调用 Workload API 的传统应用，Red Hat 官方提供 `spiffe-helper-rhel9`：
+对于无法直接调用 Workload API 的传统应用，Red Hat 官方提供 spiffe-helper：
 
-. *Init container*（`-daemon-mode=false`）：Pod 启动前写入一次证书文件，初始化 TLS 材料
-. *Sidecar*（daemon mode，默认）：持续监听 Workload API，在证书到期前原地轮换文件，主应用无感知
+. *Init container*（`-daemon-mode=false`）：Pod 启动前写入一次证书文件
+. *Sidecar*（daemon mode）：持续监听 Workload API，在证书到期前原地轮换文件，主应用无感知
 
-两者共享一个 `emptyDir`（`medium: Memory`，即 tmpfs）卷——私钥写入内存文件系统，不落磁盘，Pod 结束时自动清除。
+两者共享一个 `emptyDir`（`medium: Memory`）卷——私钥写入内存文件系统，不落磁盘，Pod 结束时自动清除。
 
-=== 工作负载注册流程
+=== 存量应用改造顺序
 
-. Pod 启动，init container（spiffe-helper）通过 `/spiffe-workload-api/spire-agent.sock` 调用 Workload API
-. 若此时没有匹配的 `SpiffeClusterSPIFFEID` 注册条目，init container 返回非零退出码 → Kubernetes 进入 `Init:CrashLoopBackOff`（自动重试）
-. 管理员创建 `SpiffeClusterSPIFFEID` CR → SPIRE Server 记录条目（由 spire-controller-manager 自动同步）
-. init container 下一次重试时调用 Workload API → SPIRE Agent 完成 Workload Attestation，返回 X.509-SVID
-. spiffe-helper 将 `svid.pem`、`svid.key`、`svid_bundle.pem` 写入共享 emptyDir → init container 退出 0 → 主容器启动
-. Sidecar 持续监听，在证书到期前（1 小时）原地更新文件，无需重启 Pod
+改造存量应用时，推荐按以下顺序操作：
 
-[NOTE]
-====
-*两种部署顺序均可：*
-
-* *先注册后部署*（ClusterSPIFFEID → Deployment）：init container 首次运行即成功，适合全新工作负载上线
-* *先部署后注册*（Deployment → ClusterSPIFFEID）：init container 先失败进入 `CrashLoopBackOff`，等 ClusterSPIFFEID 创建后自动恢复，**适合存量应用改造**——无需协调两个变更的时序
-
-本练习演示第二种顺序，更贴近企业实际场景。若 CrashLoopBackOff 等待时间过长，可手动触发 `oc rollout restart deploy/spiffe-demo -n "$NS"` 加速。
-====
+. 创建 spiffe-helper ConfigMap（配置文件，Deployment 会引用它）
+. 创建 ClusterSPIFFEID（注册身份，确保 init container 首次运行即成功）
+. 更新 Deployment（滚动更新，加入 init container + sidecar）
 
 == 学习目标
 
-* 部署使用 spiffe-helper（init + sidecar）的工作负载
-* 观察无注册条目时 init container 的自然失败（`Init:CrashLoopBackOff`）
-* 创建 SpiffeClusterSPIFFEID，触发 Pod 自愈
+* 观察普通服务（无 SPIFFE）的身份空白状态
+* 按顺序完成 SPIFFE 接入：ConfigMap → ClusterSPIFFEID → 更新 Deployment
 * 验证 X.509-SVID 文件成功写入共享卷
 * 用 openssl 检查 SVID 的 SPIFFE URI SAN 和有效期
 
@@ -154,9 +129,70 @@ echo "操作命名空间：$NS"
 
 Expected result：打印 `操作命名空间：userN-{lab_ns_suffix}`。// UNVERIFIED
 
-== 练习 2：创建 spiffe-helper 配置
+== 练习 2：部署普通服务（无 SPIFFE）
 
-创建 ConfigMap，包含 `helper.conf`——spiffe-helper 读取它来获知 socket 路径、证书输出目录和文件名。
+先部署一个没有任何 SPIFFE 组件的普通服务，模拟存量应用的初始状态：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spiffe-demo-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spiffe-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spiffe-demo
+  template:
+    metadata:
+      labels:
+        app: spiffe-demo
+    spec:
+      serviceAccountName: spiffe-demo-sa
+      containers:
+      - name: demo
+        image: registry.redhat.io/ubi9/ubi:latest
+        command: ["sleep", "infinity"]
+EOF
+----
+
+Expected result：`serviceaccount/spiffe-demo-sa created` 和 `deployment.apps/spiffe-demo created`。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc rollout status deploy/spiffe-demo -n "$NS" --timeout=60s
+----
+
+Expected result：`deployment "spiffe-demo" successfully rolled out`。// UNVERIFIED
+
+== 练习 3：验证普通服务无 SPIFFE 证书
+
+这是改造前的基准状态——服务运行正常，但没有任何加密身份：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" deploy/spiffe-demo -c demo -- \
+  sh -c 'ls /opt/spiffe-certs/ 2>&1 || echo "无 SPIFFE 证书目录——这是一个普通服务，没有加密身份"'
+----
+
+Expected result：
+----
+无 SPIFFE 证书目录——这是一个普通服务，没有加密身份
+----
+此状态下该服务无法进行基于 SVID 的 mTLS 认证，也无法向任何依赖 SPIFFE 身份的系统证明自己是谁。
+
+In short: 无 SPIFFE = 无身份证明。接下来通过三步改造解决这个问题。
+
+== 练习 4：接入步骤一 — 创建 spiffe-helper 配置
+
+创建 ConfigMap，包含 `helper.conf`——spiffe-helper 读取它来获知 socket 路径、证书输出目录和文件名：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -177,26 +213,47 @@ EOF
 
 Expected result：`configmap/spiffe-helper-config created`。// UNVERIFIED
 
-.为什么需要 ConfigMap？
-[%collapsible]
-====
-spiffe-helper 通过 `-config` 参数读取 `.conf` 文件。使用 ConfigMap 挂载配置，让镜像本身保持通用，不需要为不同 cert 路径重新构建镜像。
+== 练习 5：接入步骤二 — 注册工作负载身份
 
-`cert_dir` 必须与 `emptyDir` 卷的挂载路径完全一致——init container、sidecar 和主应用都挂载同一个 emptyDir，才能共享文件。
-====
+创建 `SpiffeClusterSPIFFEID`，告知 SPIRE 哪些工作负载有资格获得 SVID。先注册再更新 Deployment，确保 init container 首次运行即成功：
 
-== 练习 3：部署工作负载（ClusterSPIFFEID 尚未创建）
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-demo
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: spiffe-demo
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
 
-部署带有 spiffe-helper 的工作负载，同时创建 ServiceAccount。此时 ClusterSPIFFEID 还不存在——init container 将会失败，这是预期行为：
+Expected result：`clusterspiffeid.spire.spiffe.io/userN-demo created`。// UNVERIFIED
+
+验证 SPIRE Controller Manager 已同步（通常 5-10 秒）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get clusterspiffeid $(oc whoami)-demo -o jsonpath='{.status.stats}' | python3 -m json.tool
+----
+
+Expected result：`entryFailures: 0`。// UNVERIFIED
+
+== 练习 6：接入步骤三 — 更新 Deployment 加入 spiffe-helper
+
+通过 `oc apply` 滚动更新现有 Deployment，加入 spiffe-helper init container + sidecar，以及所需的 volume：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
 cat <<'EOF' | oc apply -n "$NS" -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spiffe-demo-sa
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -259,59 +316,9 @@ spec:
 EOF
 ----
 
-Expected result：`serviceaccount/spiffe-demo-sa created/unchanged` 和 `deployment.apps/spiffe-demo created`。// UNVERIFIED
+Expected result：`deployment.apps/spiffe-demo configured`（`configured` 表示更新已有 Deployment）。// UNVERIFIED
 
-== 练习 4：观察 Init:CrashLoopBackOff（负向控制）
-
-等待约 30 秒，然后检查 Pod 状态——此时 ClusterSPIFFEID 尚不存在，init container 调用 Workload API 失败：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-oc get pods -n "$NS" -l app=spiffe-demo
-----
-
-Expected result：
-----
-NAME                           READY   STATUS                  RESTARTS   AGE
-spiffe-demo-xxxxx              0/2     Init:CrashLoopBackOff   2          45s
-----
-`Init:CrashLoopBackOff` 是预期行为——init container 找不到匹配的注册条目，Kubernetes 按指数退避自动重试。主容器尚未启动，共享 emptyDir 为空。
-
-In short: 无 ClusterSPIFFEID = 无 SVID = init container 失败，这正是"零信任默认拒绝"的体现。
-
-== 练习 5：注册工作负载（创建 ClusterSPIFFEID）
-
-现在创建 `SpiffeClusterSPIFFEID`——SPIRE Controller Manager 将在秒级内同步注册条目：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-cat <<EOF | oc apply -f -
-apiVersion: spire.spiffe.io/v1alpha1
-kind: ClusterSPIFFEID
-metadata:
-  name: $(oc whoami)-demo
-spec:
-  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
-  podSelector:
-    matchLabels:
-      app: spiffe-demo
-  namespaceSelector:
-    matchLabels:
-      kubernetes.io/metadata.name: "$NS"
-  ttl: 3600s
-EOF
-----
-
-Expected result：`clusterspiffeid.spire.spiffe.io/userN-demo created`。// UNVERIFIED
-
-若 CrashLoopBackOff 的退避等待时间较长（最多 5 分钟），可手动触发快速重启：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-oc rollout restart deploy/spiffe-demo -n "$NS"
-----
-
-等待 Deployment 自愈（init container 在下一次重试时成功）：
+等待滚动更新完成：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -320,7 +327,15 @@ oc rollout status deploy/spiffe-demo -n "$NS" --timeout=120s
 
 Expected result：`deployment "spiffe-demo" successfully rolled out`。// UNVERIFIED
 
-== 练习 6：验证 SVID 文件已写入
+.为什么 ClusterSPIFFEID 要在 Deployment 更新之前创建？
+[%collapsible]
+====
+init container（spiffe-helper）在 Pod 启动时调用 Workload API。若 ClusterSPIFFEID 尚不存在，Agent 没有匹配条目，init container 失败 → `Init:CrashLoopBackOff`。
+
+先创建 ClusterSPIFFEID 可确保滚动更新时新 Pod 首次启动即成功，避免服务中断。若需要先更新 Deployment 再注册（例如多人协作场景），也可以接受短暂的 CrashLoopBackOff——Kubernetes 会自动重试，ClusterSPIFFEID 创建后 Pod 自愈。
+====
+
+== 练习 7：验证 SVID 文件已写入
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -329,59 +344,59 @@ oc exec -n "$NS" deploy/spiffe-demo -c demo -- ls -la /opt/spiffe-certs/
 
 Expected result：
 ----
-svid.pem       — X.509-SVID 证书（PEM 格式）
-svid.key       — 私钥（由 SPIRE Agent 在内存中生成）
-svid_bundle.pem — Trust Bundle 根证书（与 spire-bundle ConfigMap 内容相同）
+svid.pem         — X.509-SVID 证书（PEM 格式）
+svid.key         — 私钥（由 SPIRE Agent 在内存中生成）
+svid_bundle.pem  — Trust Bundle 根证书
 ----
-三个文件证明：init container 已成功通过 Workload API 获取 SVID，spiffe-helper 将其写入共享 emptyDir。// UNVERIFIED
+三个文件证明：spiffe-helper init container 已成功通过 Workload API 获取 SVID 并写入共享 emptyDir。与练习 3 的"无证书"状态形成鲜明对比。// UNVERIFIED
 
-In short: 证书来自 SPIRE，身份来自 Kubernetes 工作负载元数据——没有任何 Secret 或手工颁发操作。
+In short: 同一个服务，加了三样东西（ConfigMap + ClusterSPIFFEID + Deployment 更新），现在拥有了可验证的加密身份。
 
-== 练习 7：检查 X.509-SVID 证书结构
+== 练习 8：检查 X.509-SVID 证书结构
 
 [source,bash,role="execute",subs="attributes+"]
 ----
 oc exec -n "$NS" deploy/spiffe-demo -c demo -- \
   openssl x509 -in /opt/spiffe-certs/svid.pem -text -noout | \
-  grep -B 30 -A 3 "Subject Alternative Name" | grep -E "Not Before|Not After|Subject Alternative|URI:"
+  grep -B 30 -A 3 "Subject Alternative Name" | \
+  grep -E "Not Before|Not After|Subject Alternative|URI:"
 ----
 
 Expected result：
 ----
+            Not Before: Nov  2 00:00:00 2026 GMT
+            Not After : Nov  2 01:00:00 2026 GMT
         X509v3 Subject Alternative Name:
             URI:spiffe://{trust_domain}/ns/<你的命名空间>/sa/spiffe-demo-sa
 ----
-SAN 字段中的 SPIFFE URI 是这个工作负载的唯一加密身份标识。有效期 1 小时，sidecar 在到期前自动原地轮换。// UNVERIFIED
+* *URI SAN*：工作负载的唯一 SPIFFE 身份标识，来自 ClusterSPIFFEID 模板，由 namespace + ServiceAccount 派生
+* *有效期*：1 小时（`defaultX509Validity`），sidecar 在到期前原地轮换，业务容器无感知// UNVERIFIED
 
-In short: SVID 的 SAN = 工作负载的身份证号，来自 Kubernetes 元数据，无法伪造，有效期极短。
+In short: SVID 的 SAN = 工作负载的身份证号，短生命周期，自动轮换，无需任何人工操作。
 
 .深入：私钥为什么安全？
 [%collapsible]
 ====
 * 私钥由 SPIRE Agent 在**内存**中生成，通过 Workload API gRPC 流传输给 spiffe-helper
-* spiffe-helper 将其写入 `emptyDir`（`medium: Memory`）——这是节点上的 tmpfs，**不写入磁盘**
+* spiffe-helper 将其写入 `emptyDir`（`medium: Memory`）——节点上的 tmpfs，**不写入磁盘**
 * Pod 结束时，kubelet 卸载 emptyDir，内容随之消失
-* SVID 1 小时有效期：即使泄漏，攻击窗口极短；Sidecar 每次轮换都生成全新密钥对
+* SVID 1 小时有效期：即使泄漏，攻击窗口极短；sidecar 每次轮换都生成全新密钥对
 ====
 
 == 证据检查点
 
 完成本模块后，你应该能回答：
 
-* SPIFFE CSI Driver 挂载的是什么？为什么它不直接写证书文件？
-* spiffe-helper 的 init container 和 sidecar 各自的职责是什么？
-* `svid.pem` 和 `svid_bundle.pem` 的内容分别是什么？两者有什么关系？
-* 部署 Deployment 但未创建 ClusterSPIFFEID 时，Pod 处于什么状态？创建后为什么能自动恢复？
-* 存量应用改造和全新应用上线，哪种场景更适合"先部署后注册"的顺序？
+* 练习 3 和练习 7 的输出有什么本质区别？为什么同一个 Deployment 的行为完全不同？
+* 改造三步的顺序为什么是 ConfigMap → ClusterSPIFFEID → Deployment 更新？能否调换？
+* SPIFFE CSI Driver 和 spiffe-helper 各自解决什么问题？为什么需要两者配合？
 
 .参考答案
 [%collapsible]
 ====
-* *SPIFFE CSI Driver*：挂载 SPIRE Agent 的 Workload API socket（`spire-agent.sock`），供 SPIFFE-aware 应用直接调用。CSI Driver 不写证书文件——因为它运行在 DaemonSet 中，调用 Workload API 时使用自己的进程身份，而非目标 Pod 的身份，Agent 不会为它颁发目标 Pod 的 SVID。
-* *Init container*：一次性写入初始证书文件（`-daemon-mode=false`），运行在 Pod 内部，使用 Pod 自己的身份调用 Workload API，成功后退出。*Sidecar*：持续运行（daemon mode），监听 Workload API 的 SVID 轮换事件，在证书到期前原地更新文件。
-* *svid.pem*：工作负载的 X.509 证书，含 SPIFFE URI SAN。*svid_bundle.pem*：SPIRE CA 根证书，与 `spire-bundle` ConfigMap 内容相同，mTLS 对端用它验证 SVID 的合法性。
-* 无 ClusterSPIFFEID 时，init container 调用 Workload API 失败 → 非零退出码 → `Init:CrashLoopBackOff`。Kubernetes 按指数退避自动重试。创建 ClusterSPIFFEID 后，SPIRE Controller Manager 在秒级同步注册条目，下一次 init container 重试（或手动 rollout restart）即可成功，Deployment 自愈。
-* *存量应用改造*更适合"先部署后注册"：运维团队先将 spiffe-helper 加入现有 Deployment（rolling update），再由安全团队创建 ClusterSPIFFEID，两个变更可独立进行，无需精确协调时序。*全新应用*"先注册后部署"更简洁——避免短暂的 CrashLoopBackOff。
+* 练习 3（普通服务）：无证书目录，服务没有任何加密身份证明。练习 7（接入后）：三个 SVID 文件，服务拥有由 SPIRE CA 签发的 X.509 证书，其中 SAN 包含 SPIFFE URI——身份来自 Kubernetes 工作负载元数据，不可伪造。
+* ConfigMap 先创建是因为 Deployment 引用它；ClusterSPIFFEID 先于 Deployment 更新是为了确保 init container 首次运行成功（避免 CrashLoopBackOff）。若调换后两步，init container 会先失败，但 Kubernetes 自动重试后也能自愈——代价是短暂的服务中断。
+* *SPIFFE CSI Driver*：把 SPIRE Agent 的 Workload API socket 挂载进 Pod，是 SVID 获取的入口（但它本身不写证书文件，因为它以 DaemonSet 自己的进程身份调用 socket，无法获取目标 Pod 的 SVID）。*spiffe-helper*：以 Pod 自身进程身份（init container 和 sidecar 运行在 Pod 内）调用 socket，成功获取并写入证书文件。两者缺一不可。
 ====
 
 Proceed to xref:05-module-03-mtls-communication.adoc[模块 3：mTLS 微服务通信].
