@@ -6,6 +6,7 @@ COPY src ./src
 RUN mvn package -DskipTests -q
 
 FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache curl
 WORKDIR /app
 COPY --from=build /app/target/helloworld-java-1.0.0.jar app.jar
 EXPOSE 8080
