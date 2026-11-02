@@ -1,5 +1,5 @@
-= 模块 4：JWT-SVID REST API 认证
-:navtitle: 模块 4：JWT-SVID API 认证
+= 模块 5：JWT-SVID REST API 认证
+:navtitle: 模块 5：JWT-SVID API 认证
 
 本模块回答的客户问题：*REST API 如何在不使用 API Key 的情况下验证调用方的 SPIFFE 身份——且令牌有效期仅 5 分钟？*
 
@@ -234,6 +234,19 @@ echo "" && echo "结论：exp=1 表示 1970-01-01 已过期，签名无效，任
 
 Expected result：Payload 显示 `exp: 1`（已过期），说明过期 Token 可被解码但签名验证失败，OIDC 验证器返回 401。// UNVERIFIED
 
+== 清理
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+oc delete deploy/jwt-demo -n "$NS" --ignore-not-found
+oc delete sa/jwt-demo-sa -n "$NS" --ignore-not-found
+oc delete cm/spiffe-helper-config-jwt -n "$NS" --ignore-not-found
+oc delete clusterspiffeid $(oc whoami)-jwt-demo --ignore-not-found
+----
+
+Expected result：各资源删除确认。// UNVERIFIED
+
 == 证据检查点
 
 * JWT-SVID 的 `sub` 字段和 X.509-SVID 的 URI SAN 有什么关系？
@@ -248,4 +261,4 @@ Expected result：Payload 显示 `exp: 1`（已过期），说明过期 Token �
 * 任何支持 OIDC/JWKS 验证的系统：Kong API Gateway、Nginx（`auth_jwt`）、Spring Security OAuth2、AWS API Gateway（JWT Authorizer）、Istio RequestAuthentication——无需任何 SPIRE SDK。
 ====
 
-Proceed to xref:07-module-05-vm-postgresql.adoc[模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS].
+Proceed to xref:08-module-06-vm-postgresql.adoc[模块 6：VM 上的 SPIRE Agent — PostgreSQL mTLS].

@@ -399,4 +399,20 @@ In short: SVID 的 SAN = 工作负载的身份证号，短生命周期，自动�
 * *SPIFFE CSI Driver*：把 SPIRE Agent 的 Workload API socket 挂载进 Pod，是 SVID 获取的入口（但它本身不写证书文件，因为它以 DaemonSet 自己的进程身份调用 socket，无法获取目标 Pod 的 SVID）。*spiffe-helper*：以 Pod 自身进程身份（init container 和 sidecar 运行在 Pod 内）调用 socket，成功获取并写入证书文件。两者缺一不可。
 ====
 
+== 清理
+
+删除本模块创建的所有资源，避免影响后续模块：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+oc delete deployment spiffe-demo -n "$NS" --ignore-not-found
+oc delete serviceaccount spiffe-demo-sa -n "$NS" --ignore-not-found
+oc delete configmap spiffe-helper-config -n "$NS" --ignore-not-found
+oc delete clusterspiffeid $(oc whoami)-demo --ignore-not-found
+echo "模块 2 清理完成"
+----
+
+Expected result：每条命令输出 `deleted` 或 `not found`。// UNVERIFIED
+
 Proceed to xref:05-module-03-mtls-communication.adoc[模块 3：mTLS 微服务通信].

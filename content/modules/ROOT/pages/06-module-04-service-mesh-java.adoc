@@ -1,0 +1,382 @@
+= 模块 4：OpenShift Service Mesh + Java 微服务零信任通信
+:navtitle: 模块 4：Service Mesh + Java
+
+本模块回答的客户问题：*如何在不修改任何 Java 业务代码的情况下，为 Spring Boot 微服务之间的通信启用基于 SPIFFE 身份的 mTLS？*
+
+你将部署两个普通的 Java 微服务（初始为纯 HTTP 通信），然后通过接入 OpenShift Service Mesh（OSSM）和 SPIFFE 零信任策略，让 Envoy sidecar 透明地处理所有 mTLS——Java 代码一行不改。
+
+[NOTE]
+====
+*前置条件（Facilitator 在开课前完成）：*
+
+* OpenShift Service Mesh（OSSM）Operator 已安装
+* ServiceMeshControlPlane 已配置并集成 SPIRE
+* Zero Trust Workload Identity Manager Operator 已安装（前几个模块已完成）
+
+参考：link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/security_and_compliance/zero-trust-workload-identity-manager[OCP 4.22 § 12.10 — Integrating Red Hat OpenShift Service Mesh with Zero Trust Workload Identity Manager^]
+====
+
+.为什么 Service Mesh 是 Java 微服务的最佳 SPIFFE 集成方式？
+[%collapsible]
+====
+在模块 3 中，我们使用 openssl 命令行工具手工演示了 mTLS 握手。对于真实的 Java 应用，有三种接入方式：
+
+[cols="1,2,1,1",options="header"]
+|===
+| 方式 | 原理 | Java 代码改动 | 适用场景
+
+| Envoy Sidecar（Service Mesh）
+| Envoy 拦截所有进出流量，自动处理 mTLS 和 SPIFFE SVID
+| *零改动*
+| 存量应用无缝改造
+
+| spiffe-helper 文件 + Java SSLContext 重载
+| spiffe-helper 写入 SVID 文件，Java 定期重建 SSLContext
+| 小量（SSL 配置部分）
+| 需要控制 TLS 细节
+
+| Java SPIFFE SDK（`java-spiffe`）
+| 直接调用 Workload API，自动处理轮换
+| 中等（引入依赖）
+| 云原生 Java 应用
+|===
+
+*本模块演示第一种方式——零代码改动*。Envoy sidecar 由 OSSM 自动注入，SPIFFE SVID 由 SPIRE 自动颁发，Java 应用全程感知不到任何变化。
+====
+
+== 技术背景
+
+=== OSSM + SPIRE 集成架构
+
+[cols="1,3",options="header"]
+|===
+| 组件 | 职责
+
+| Envoy Sidecar（由 OSSM 注入）
+| 拦截 Pod 所有进出流量；通过 SDS（Secret Discovery Service）从 SPIRE Agent 获取 SVID；处理 mTLS 握手
+
+| PeerAuthentication
+| 声明命名空间或工作负载的 mTLS 策略（STRICT = 强制双向 TLS）
+
+| DestinationRule
+| 声明访问目标服务时使用的 TLS 模式（ISTIO_MUTUAL = 使用 Istio/SPIFFE 证书）
+
+| ServiceMeshMemberRoll
+| 将命名空间加入 Service Mesh 管理范围，触发 sidecar 自动注入
+|===
+
+=== 流量路径（接入 OSSM 后）
+
+----
+service-a Pod
+  └─ Java 进程 ──HTTP──▶ Envoy sidecar (outbound)
+                            └─ mTLS（SPIFFE SVID）──▶ Envoy sidecar (inbound)
+                                                        └─ HTTP ──▶ Java 进程 (service-b)
+----
+
+Java 进程始终看到的是本地 HTTP 连接——mTLS 和身份验证完全由 Envoy 处理。
+
+== 学习目标
+
+* 观察没有 Service Mesh 时 Java 微服务之间的普通 HTTP 通信
+* 将命名空间加入 Service Mesh，触发 Envoy sidecar 自动注入
+* 应用 `PeerAuthentication STRICT` 强制 mTLS
+* 验证 Envoy 使用 SPIFFE SVID 进行双向认证
+* 确认 Java 业务代码零改动
+
+== 练习 1：确认前置条件
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+echo "操作命名空间：$NS"
+
+echo "=== 检查 OSSM 控制平面 ===" && \
+oc get smcp -A --no-headers 2>/dev/null | head -3 || \
+  echo "⚠️  未找到 ServiceMeshControlPlane，请联系 Facilitator"
+
+echo "=== 检查 SPIRE 运行状态 ===" && \
+oc get pods -n {spire_operator_ns} --no-headers | grep Running | wc -l | \
+  xargs -I{} echo "{} 个 SPIRE 组件正在运行"
+----
+
+Expected result：OSSM 控制平面存在且状态为 `ComponentsReady`；SPIRE 组件正在运行。// UNVERIFIED
+
+== 练习 2：部署两个 Java 微服务（无 Service Mesh）
+
+部署代表 Spring Boot 微服务的两个 HTTP 服务。初始状态：普通 HTTP，无 TLS，无 SPIFFE：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<'EOF' | oc apply -n "$NS" -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-service-a
+  labels:
+    app: java-service-a
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: java-service-a
+  template:
+    metadata:
+      labels:
+        app: java-service-a
+        version: v1
+    spec:
+      containers:
+      - name: app
+        image: quay.io/openshifttest/hello-openshift:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: RESPONSE
+          value: "Hello from java-service-a (Spring Boot)"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-service-a
+spec:
+  selector:
+    app: java-service-a
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-service-b
+  labels:
+    app: java-service-b
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: java-service-b
+  template:
+    metadata:
+      labels:
+        app: java-service-b
+        version: v1
+    spec:
+      containers:
+      - name: app
+        image: quay.io/openshifttest/hello-openshift:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: RESPONSE
+          value: "Hello from java-service-b (Spring Boot)"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-service-b
+spec:
+  selector:
+    app: java-service-b
+  ports:
+  - port: 8080
+    targetPort: 8080
+EOF
+----
+
+Expected result：4 个资源创建（2 个 Deployment + 2 个 Service）。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc rollout status deploy/java-service-a deploy/java-service-b -n "$NS" --timeout=60s
+----
+
+Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
+
+[NOTE]
+====
+实际 Spring Boot 微服务将 `quay.io/openshifttest/hello-openshift:latest` 替换为你的 `registry.example.com/<org>/spring-boot-service-a:1.0`。OSSM 配置完全相同，无需任何调整。
+====
+
+== 练习 3：验证普通 HTTP 通信（无 TLS）
+
+从 service-a 调用 service-b，确认当前是普通 HTTP（无加密，无身份验证）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" deploy/java-service-a -c app -- \
+  curl -s http://java-service-b:8080 2>&1
+----
+
+Expected result：返回 service-b 的响应内容，无 TLS 相关输出——这是纯 HTTP 通信。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" deploy/java-service-a -c app -- \
+  sh -c 'curl -sv http://java-service-b:8080 2>&1 | grep -E "Connected|SSL|TLS|< HTTP"'
+----
+
+Expected result：`Connected to java-service-b`，无任何 SSL/TLS 相关行——这是改造前的基准状态。// UNVERIFIED
+
+In short: 此时两个"Spring Boot 服务"之间是明文 HTTP，任何人都可以拦截或伪造请求。
+
+== 练习 4：加入 Service Mesh
+
+将你的命名空间加入 OSSM 管理范围（需要 Facilitator 提供正确的 ServiceMeshMemberRoll 名称）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+SMCP_NS=$(oc get smcp -A --no-headers | awk '{print $1}' | head -1)
+echo "Service Mesh 控制平面命名空间：$SMCP_NS"
+
+oc patch smmr default -n "$SMCP_NS" --type=json \
+  -p="[{\"op\":\"add\",\"path\":\"/spec/members/-\",\"value\":\"$NS\"}]" 2>&1 || \
+  echo "如果 patch 失败，请联系 Facilitator 将 $NS 加入 ServiceMeshMemberRoll"
+----
+
+Expected result：`servicemeshmemberroll.maistra.io/default patched` 或 Facilitator 确认加入。// UNVERIFIED
+
+验证命名空间已加入（通常需要 30-60 秒）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get smmr default -n "$SMCP_NS" -o jsonpath='{.status.memberStatuses}' | \
+  python3 -m json.tool 2>/dev/null | grep -A 2 "$NS" || \
+  oc get namespace "$NS" --show-labels | grep -i mesh
+----
+
+Expected result：命名空间 `$NS` 出现在 member 列表，状态为 `Configured`。// UNVERIFIED
+
+== 练习 5：启用 Sidecar 注入并重新部署
+
+为 Deployment 加上 sidecar 注入注解，触发 Envoy 注入（滚动更新，无停机）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc patch deployment java-service-a -n "$NS" --type=json \
+  -p='[{"op":"add","path":"/spec/template/metadata/annotations","value":{"sidecar.istio.io/inject":"true"}}]'
+
+oc patch deployment java-service-b -n "$NS" --type=json \
+  -p='[{"op":"add","path":"/spec/template/metadata/annotations","value":{"sidecar.istio.io/inject":"true"}}]'
+----
+
+Expected result：两个 Deployment `configured`。// UNVERIFIED
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc rollout status deploy/java-service-a deploy/java-service-b -n "$NS" --timeout=120s
+----
+
+验证每个 Pod 现在有 2 个容器（app + istio-proxy）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get pods -n "$NS" -l 'app in (java-service-a,java-service-b)' \
+  -o custom-columns='名称:.metadata.name,就绪:.status.containerStatuses[*].ready,容器数:.spec.containers[*].name'
+----
+
+Expected result：
+----
+java-service-a-xxx   true,true   app,istio-proxy
+java-service-b-xxx   true,true   app,istio-proxy
+----
+每个 Pod 现在有 `app`（Java 业务容器）和 `istio-proxy`（Envoy sidecar）两个容器，Java 代码未作任何修改。// UNVERIFIED
+
+In short: Envoy sidecar 已注入，但默认还没有强制 mTLS——下一步配置策略。
+
+== 练习 6：应用 PeerAuthentication STRICT
+
+声明命名空间内的 mTLS 策略——STRICT 模式要求所有进入该命名空间的流量都必须经过 mTLS：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -n "$NS" -f -
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: java-service-b-mtls
+spec:
+  host: java-service-b
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+EOF
+----
+
+Expected result：`peerauthentication.security.istio.io/default created` 和 `destinationrule.networking.istio.io/java-service-b-mtls created`。// UNVERIFIED
+
+== 练习 7：验证 mTLS 已启用
+
+从 service-a 再次调用 service-b——此时由 Envoy 自动处理 mTLS：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" deploy/java-service-a -c app -- \
+  curl -s http://java-service-b:8080 2>&1
+----
+
+Expected result：仍然返回正常响应——Java 代码无任何变化，但底层已经是 mTLS。// UNVERIFIED
+
+验证 Envoy 使用的是 SPIFFE SVID（查看 istio-proxy 容器的证书）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc exec -n "$NS" deploy/java-service-b -c istio-proxy -- \
+  openssl s_client -connect localhost:15020 -showcerts 2>/dev/null | \
+  grep -E "subject|issuer|URI:" | head -5 2>/dev/null || \
+  oc exec -n "$NS" deploy/java-service-b -c istio-proxy -- \
+    pilot-agent request GET certs 2>/dev/null | python3 -m json.tool | grep -E "spiffe|trust" | head -5
+----
+
+Expected result：证书中包含 `spiffe://` URI，表明 Envoy 使用 SPIRE 颁发的 SVID 进行 mTLS 认证。// UNVERIFIED
+
+In short: Java 服务代码零改动，mTLS 和 SPIFFE 身份验证已完全由 OSSM + SPIRE 透明处理。
+
+== 练习 8：负向控制 — 无 Sidecar 的访问被拒绝
+
+从命名空间外（或没有 Envoy sidecar 的 Pod）尝试访问 service-b（PeerAuthentication STRICT 模式下会拒绝非 mTLS 连接）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc run test-no-sidecar --image=registry.redhat.io/ubi9/ubi:latest \
+  --rm -it --restart=Never -n "$NS" \
+  --command -- curl -s --max-time 5 http://java-service-b:8080 2>&1 || \
+  echo "连接失败（预期行为）——STRICT mTLS 拒绝非 sidecar 流量"
+----
+
+Expected result：连接失败或超时——没有 Envoy sidecar 的 Pod 无法通过 STRICT mTLS 验证，即使在同一命名空间内也无法访问 service-b。// UNVERIFIED
+
+In short: `PeerAuthentication STRICT` 意味着命名空间内的所有流量都必须通过 mTLS，任何没有 Envoy sidecar 的 Pod（包括手工 curl）都会被拒绝。
+
+== 清理
+
+删除本模块创建的所有资源：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+SMCP_NS=$(oc get smcp -A --no-headers 2>/dev/null | awk '{print $1}' | head -1)
+
+oc delete peerauthentication default -n "$NS" --ignore-not-found
+oc delete destinationrule java-service-b-mtls -n "$NS" --ignore-not-found
+oc delete deployment java-service-a java-service-b -n "$NS" --ignore-not-found
+oc delete service java-service-a java-service-b -n "$NS" --ignore-not-found
+
+echo "模块 4 清理完成"
+echo "（命名空间 $NS 仍在 Service Mesh 中，如需彻底移除请联系 Facilitator）"
+----
+
+Expected result：每条命令输出 `deleted` 或 `not found`。// UNVERIFIED
+
+Proceed to xref:07-module-05-jwt-svid-api.adoc[模块 5：JWT-SVID REST API 认证].

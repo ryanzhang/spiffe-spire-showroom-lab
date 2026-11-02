@@ -1,17 +1,18 @@
-* xref:index.adoc[Introduction]
-* xref:01-overview.adoc[Architecture and Zero Trust Model]
-* xref:02-details.adoc[Prerequisites and Environment]
+* xref:index.adoc[简介]
+* xref:01-overview.adoc[架构概览与零信任模型]
+* xref:02-details.adoc[前置条件与环境准备]
 
-.Zero Trust Identity Track (~4 hours)
-* xref:03-module-01-spire-deployment.adoc[Module 1: Exploring the SPIRE Deployment]
-* xref:04-module-02-workload-registration.adoc[Module 2: Workload Registration and X.509 SVID]
-* xref:05-module-03-mtls-communication.adoc[Module 3: mTLS Microservice Communication]
-* xref:06-module-04-jwt-svid-api.adoc[Module 4: JWT-SVID REST API Authentication]
-* xref:07-module-05-vm-postgresql.adoc[Module 5: SPIRE Agent on VM – PostgreSQL mTLS]
+.Zero Trust Identity Track（约 5 小时）
+* xref:03-module-01-spire-deployment.adoc[模块 1：观察 SPIRE 部署]
+* xref:04-module-02-workload-registration.adoc[模块 2：工作负载注册与 X.509-SVID]
+* xref:05-module-03-mtls-communication.adoc[模块 3：mTLS 微服务通信]
+* xref:06-module-04-service-mesh-java.adoc[模块 4：Service Mesh + Java 微服务]
+* xref:07-module-05-jwt-svid-api.adoc[模块 5：JWT-SVID REST API 认证]
+* xref:08-module-06-vm-postgresql.adoc[模块 6：VM 上的 SPIRE Agent — PostgreSQL mTLS]
 
 .Wrap-up
-* xref:90-cleanup.adoc[Cleanup]
-* xref:91-reference.adoc[Technical Reference]
+* xref:90-cleanup.adoc[清理]
+* xref:91-reference.adoc[技术参考]
 
 .Facilitators
-* xref:92-facilitator-guide.adoc[Facilitator Guide]
+* xref:92-facilitator-guide.adoc[Facilitator 指南]

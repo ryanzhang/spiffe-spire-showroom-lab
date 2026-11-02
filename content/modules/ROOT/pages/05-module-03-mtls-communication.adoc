@@ -309,4 +309,20 @@ In short: 零信任的核心——身份验证在网络层完成，不依赖应�
 * `peer-demo-spire-lab` 的工作负载无 ClusterSPIFFEID 注册条目 → SPIRE Agent 拒绝颁发 SVID → spiffe-helper 获取失败 → 无证书文件 → 无法通过 mTLS 验证。
 ====
 
-Proceed to xref:06-module-04-jwt-svid-api.adoc[模块 4：JWT-SVID REST API 认证].
+== 清理
+
+删除本模块创建的所有资源：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+oc delete deployment service-a service-b -n "$NS" --ignore-not-found
+oc delete serviceaccount service-a-sa service-b-sa -n "$NS" --ignore-not-found
+oc delete configmap spiffe-helper-config-svc -n "$NS" --ignore-not-found
+oc delete clusterspiffeid $(oc whoami)-service-a $(oc whoami)-service-b --ignore-not-found
+echo "模块 3 清理完成"
+----
+
+Expected result：每条命令输出 `deleted` 或 `not found`。// UNVERIFIED
+
+Proceed to xref:06-module-04-service-mesh-java.adoc[模块 4：Service Mesh + Java 微服务].

@@ -1,5 +1,5 @@
-= 模块 5：VM 上的 SPIRE Agent — PostgreSQL mTLS
-:navtitle: 模块 5：VM 与 PostgreSQL
+= 模块 6：VM 上的 SPIRE Agent — PostgreSQL mTLS
+:navtitle: 模块 6：VM 与 PostgreSQL
 
 本模块回答的客户问题：*SPIFFE/SPIRE 的零信任身份体系能否覆盖 Kubernetes 之外的虚拟机和传统数据库——不改应用代码，只改基础设施？*
 
@@ -241,6 +241,18 @@ SSL connection failed: ...certificate required...
 `pg_hba.conf` 中的 `hostssl ... cert` 规则要求客户端必须提供有效的 X.509 证书。没有 SVID 的客户端连接被拒绝，甚至不会到达认证阶段。// UNVERIFIED
 
 In short: 数据库身份认证从"用户名+密码"升级为"加密证书+信任域验证"，攻击者即使知道 IP 和端口，没有 SPIRE 颁发的 SVID 也无法建立连接。
+
+== 清理
+
+[source,bash,role="execute",subs="attributes+"]
+----
+NS=$(oc whoami)-{lab_ns_suffix}
+oc delete deploy/pg-client -n "$NS" --ignore-not-found
+oc delete sa/pg-client-sa -n "$NS" --ignore-not-found
+oc delete clusterspiffeid $(oc whoami)-pg-client --ignore-not-found
+----
+
+Expected result：各资源删除确认。// UNVERIFIED
 
 == 证据检查点
 

@@ -17,8 +17,9 @@
 == 你将完成的任务
 
 . 观察 SPIRE Server、Agent 和 CSI Driver 的运行状态，理解各组件职责
-. 注册工作负载，获取 X.509-SVID，检查证书结构
+. 为存量应用三步接入 SPIFFE：ConfigMap → ClusterSPIFFEID → 更新 Deployment
 . 验证基于 SVID 的 mTLS 通信：正向通过，负向拒绝
+. 使用 OpenShift Service Mesh 为 Spring Boot 微服务透明启用 SPIFFE mTLS（零代码改动）
 . 使用 JWT-SVID 作为 Bearer Token 对 REST API 进行认证
 . 在 KubeVirt VM 上部署 SPIRE Agent，对 PostgreSQL 建立 mTLS 数据库连接
 
@@ -54,27 +55,31 @@
 | 30 分钟
 
 | 2. 工作负载注册与 X.509-SVID
-| *工作负载如何获得加密身份而无需管理证书文件？* 创建 SpiffeClusterSPIFFEID 注册条目；CSI Driver 将 SVID 原地挂载到 Pod；用 openssl 检查 URI SAN 字段
+| *存量应用如何接入 SPIFFE？* 模拟三步改造：ConfigMap → ClusterSPIFFEID → 更新 Deployment；验证 svid.pem / svid.key / svid_bundle.pem 写入共享卷
 | 45 分钟
 
 | 3. mTLS 微服务通信
 | *如何证明只有授权服务才能建立连接？* 验证 service-a → service-b mTLS 正向通路；证明 peer-demo 命名空间的请求在 TLS 握手阶段被拒绝，拒绝点在网络层
 | 45 分钟
 
-| 4. JWT-SVID REST API 认证
-| *REST API 如何在不使用 API Key 的情况下验证调用方身份？* 从 Workload API 获取 JWT-SVID，以 Bearer Token 调用 REST API；过期或无效令牌返回 HTTP 401
+| 4. Service Mesh + Java 微服务
+| *如何在不修改任何 Java 代码的情况下为微服务启用 SPIFFE mTLS？* 使用 OpenShift Service Mesh 为两个 Spring Boot 服务透明地注入 Envoy sidecar，应用 PeerAuthentication STRICT，验证 SPIFFE SVID 由 OSSM 自动管理
+| 60 分钟
+
+| 5. JWT-SVID REST API 认证
+| *REST API 如何在不使用 API Key 的情况下验证调用方的 SPIFFE 身份？* 从 Workload API 获取 JWT-SVID，以 Bearer Token 调用 REST API；过期或无效令牌返回 HTTP 401
 | 45 分钟
 
-| 5. VM 上的 SPIRE Agent — PostgreSQL mTLS
+| 6. VM 上的 SPIRE Agent — PostgreSQL mTLS
 | *SPIFFE 信任域能覆盖非 Kubernetes 工作负载吗？* KubeVirt VM 上的 SPIRE Agent 通过 join_token 认证并加入信任域；OCP 微服务使用 SVID 证书 mTLS 连接 PostgreSQL；无证书连接被数据库拒绝
 | 60 分钟
 
-| 清理
-| 参与者清理自己命名空间中创建的资源；Facilitator 执行 `make teardown`
-| 15 分钟
+| 清理（每模块末尾）
+| 各模块独立清理，避免资源污染
+| 5-10 分钟
 |===
 
-*合计：约 4 小时（含 Q&A 缓冲）*
+*合计：约 5 小时（含 Q&A 缓冲）*
 
 == 本实验不能证明什么
 
