@@ -129,12 +129,14 @@ spec:
     spec:
       containers:
       - name: app
-        image: quay.io/openshifttest/hello-openshift:latest
+        image: quay.io/rzhang/helloworld-java:latest
         ports:
         - containerPort: 8080
         env:
-        - name: RESPONSE
-          value: "Hello from java-service-a (Spring Boot)"
+        - name: APP_NAME
+          value: "java-service-a"
+        - name: SERVICE_B_URL
+          value: "http://java-service-b:8080"
 ---
 apiVersion: v1
 kind: Service
@@ -167,12 +169,12 @@ spec:
     spec:
       containers:
       - name: app
-        image: quay.io/openshifttest/hello-openshift:latest
+        image: quay.io/rzhang/helloworld-java:latest
         ports:
         - containerPort: 8080
         env:
-        - name: RESPONSE
-          value: "Hello from java-service-b (Spring Boot)"
+        - name: APP_NAME
+          value: "java-service-b"
 ---
 apiVersion: v1
 kind: Service
@@ -198,28 +200,51 @@ Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
 
 [NOTE]
 ====
-实际 Spring Boot 微服务将 `quay.io/openshifttest/hello-openshift:latest` 替换为你的 `registry.example.com/<org>/spring-boot-service-a:1.0`。OSSM 配置完全相同，无需任何调整。
+本镜像（`quay.io/rzhang/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，源代码在仓库 `apps/helloworld-java/` 目录。接口说明：`GET /hello` 返回服务身份信息，`GET /call` 调用 `SERVICE_B_URL/hello`（演示服务间通信），`GET /health` 返回健康状态。
 ====
 
 == 练习 3：验证普通 HTTP 通信（无 TLS）
 
-从 service-a 调用 service-b，确认当前是普通 HTTP（无加密，无身份验证）：
+从 service-a 直接调用 service-b `/hello` 端点，确认普通 HTTP 通信：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
 oc exec -n "$NS" deploy/java-service-a -c app -- \
-  curl -s http://java-service-b:8080 2>&1
+  curl -s http://java-service-b:8080/hello | python3 -m json.tool
 ----
 
-Expected result：返回 service-b 的响应内容，无 TLS 相关输出——这是纯 HTTP 通信。// UNVERIFIED
+Expected result：
+----
+{
+    "message": "Hello from java-service-b!",
+    "service": "java-service-b",
+    "host": "java-service-b-xxxxx",
+    "timestamp": "2026-11-02T..."
+}
+----
+这是普通 HTTP 返回的 JSON 响应——无 TLS，无身份验证。// UNVERIFIED
+
+通过 service-a 的 `/call` 端点演示服务间调用（service-a 调 service-b）：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
 oc exec -n "$NS" deploy/java-service-a -c app -- \
-  sh -c 'curl -sv http://java-service-b:8080 2>&1 | grep -E "Connected|SSL|TLS|< HTTP"'
+  curl -s http://localhost:8080/call | python3 -m json.tool
 ----
 
-Expected result：`Connected to java-service-b`，无任何 SSL/TLS 相关行——这是改造前的基准状态。// UNVERIFIED
+Expected result：
+----
+{
+    "caller": "java-service-a",
+    "status": "success",
+    "protocol": "HTTP (pre-SPIFFE) or mTLS (post-OSSM)",
+    "upstream": {
+        "message": "Hello from java-service-b!",
+        ...
+    }
+}
+----
+`status: success` 表明 service-a 成功调用了 service-b，此时为明文 HTTP。// UNVERIFIED
 
 In short: 此时两个"Spring Boot 服务"之间是明文 HTTP，任何人都可以拦截或伪造请求。
 
