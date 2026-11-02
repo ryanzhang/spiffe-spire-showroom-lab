@@ -36,6 +36,24 @@ make -C automation bootstrap
 ----
 oc apply -f automation/facilitator-prereqs/web-terminal.yaml
 ----
++
+. 安装 OpenShift Service Mesh 3.x（OSSM 3.x/Sail Operator）——Module 4 所需：
++
+[source,bash]
+----
+# 1. 安装 OSSM 3.x Operator 和控制平面
+oc apply -f automation/facilitator-prereqs/ossm3.yaml
+
+# 2. 等待 Operator CSV 就绪（约 2-3 分钟）
+until oc get csv -n openshift-operators --no-headers | grep servicemeshoperator3 | grep -q Succeeded; do
+  echo -n "."; sleep 15
+done && echo " OSSM 3.x Operator Ready"
+
+# 3. 等待 Istio 控制平面就绪（约 3-5 分钟）
+until oc get istio default -o jsonpath='{.status.state}' 2>/dev/null | grep -q Healthy; do
+  echo -n "."; sleep 15
+done && echo " Istio Control Plane Healthy"
+----
 
 == 验证所有集群
 

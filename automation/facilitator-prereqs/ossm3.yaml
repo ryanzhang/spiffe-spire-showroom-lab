@@ -1,0 +1,38 @@
+# OSSM 3.x (Red Hat OpenShift Service Mesh 3, Sail Operator)
+# Run once as cluster-admin before class:
+#   oc apply -f automation/facilitator-prereqs/ossm3.yaml
+# Then wait for Istio to be Ready:
+#   oc get istio default -o jsonpath='{.status.state}'
+# Expected: Healthy
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: servicemeshoperator3
+  namespace: openshift-operators
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: servicemeshoperator3
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    app.kubernetes.io/managed-by: facilitator
+---
+# Istio CR deploys the OSSM 3.x control plane into istio-system.
+# Wait for CSV Succeeded before applying this.
+apiVersion: sailoperator.io/v1alpha1
+kind: Istio
+metadata:
+  name: default
+spec:
+  namespace: istio-system
+  updateStrategy:
+    type: InPlace
+    inactiveRevisionDeletionGracePeriodSeconds: 30
+  version: v1.24.1

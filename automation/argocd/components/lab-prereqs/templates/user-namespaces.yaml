@@ -10,6 +10,7 @@ metadata:
     demo.redhat.com/application: field-content
     argocd.argoproj.io/managed-by: {{ $.Values.argocdNamespace }}
     app.kubernetes.io/part-of: {{ $.Values.partOf }}
+    istio-injection: enabled
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

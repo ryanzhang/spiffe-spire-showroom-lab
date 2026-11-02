@@ -10,7 +10,7 @@
 *前置条件（Facilitator 在开课前完成）：*
 
 * OpenShift Service Mesh（OSSM）Operator 已安装
-* ServiceMeshControlPlane 已配置并集成 SPIRE
+* OpenShift Service Mesh 3.x（Sail Operator）已安装，`Istio` 控制平面状态 `Healthy`
 * Zero Trust Workload Identity Manager Operator 已安装（前几个模块已完成）
 
 参考：link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/security_and_compliance/zero-trust-workload-identity-manager[OCP 4.22 § 12.10 — Integrating Red Hat OpenShift Service Mesh with Zero Trust Workload Identity Manager^]
@@ -61,8 +61,8 @@
 | DestinationRule
 | 声明访问目标服务时使用的 TLS 模式（ISTIO_MUTUAL = 使用 Istio/SPIFFE 证书）
 
-| ServiceMeshMemberRoll
-| 将命名空间加入 Service Mesh 管理范围，触发 sidecar 自动注入
+| Namespace 标签（`istio-injection=enabled`）
+| 将命名空间加入 OSSM 3.x 管理范围（无需 ServiceMeshMemberRoll），触发 sidecar 自动注入
 |===
 
 === 流量路径（接入 OSSM 后）
@@ -92,8 +92,8 @@ NS=$(oc whoami)-{lab_ns_suffix}
 echo "操作命名空间：$NS"
 
 echo "=== 检查 OSSM 控制平面 ===" && \
-oc get smcp -A --no-headers 2>/dev/null | head -3 || \
-  echo "⚠️  未找到 ServiceMeshControlPlane，请联系 Facilitator"
+oc get istio 2>/dev/null | head -3 || \
+  echo "⚠️  未找到 Istio 控制平面，请联系 Facilitator"
 
 echo "=== 检查 SPIRE 运行状态 ===" && \
 oc get pods -n {spire_operator_ns} --no-headers | grep Running | wc -l | \
@@ -237,7 +237,7 @@ Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
 本镜像（`docker.io/smokingwell/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，基于 `registry.access.redhat.com/ubi9/openjdk-21-runtime`（Red Hat 官方 UBI9 基础镜像）。源代码在仓库 `apps/helloworld-java/` 目录。接口说明：
 
 * `GET /hello` — JSON：服务身份 + mTLS 状态
-* `GET /call/{serviceName}` — HTML：调用上游服务并展示 SPIFFE 教学页面
+* `GET /call/\{serviceName}` — HTML：调用上游服务并展示 SPIFFE 教学页面
 * `GET /health` — 健康检查
 ====
 
@@ -265,32 +265,25 @@ echo "在浏览器打开：https://$ROUTE_URL/call/java-service-b"
 
 In short: 此时两个 Java 服务之间是明文 HTTP，刷新页面后可直观看到 SPIFFE 启用前后的区别。
 
-== 练习 4：加入 Service Mesh
+== 练习 4：加入 Service Mesh（命名空间已预标记）
 
-将你的命名空间加入 OSSM 管理范围（需要 Facilitator 提供正确的 ServiceMeshMemberRoll 名称）：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-SMCP_NS=$(oc get smcp -A --no-headers | awk '{print $1}' | head -1)
-echo "Service Mesh 控制平面命名空间：$SMCP_NS"
-
-oc patch smmr default -n "$SMCP_NS" --type=json \
-  -p="[{\"op\":\"add\",\"path\":\"/spec/members/-\",\"value\":\"$NS\"}]" 2>&1 || \
-  echo "如果 patch 失败，请联系 Facilitator 将 $NS 加入 ServiceMeshMemberRoll"
-----
-
-Expected result：`servicemeshmemberroll.maistra.io/default patched` 或 Facilitator 确认加入。// UNVERIFIED
-
-验证命名空间已加入（通常需要 30-60 秒）：
+在 OSSM 3.x 中，命名空间无需 ServiceMeshMemberRoll——只需有 `istio-injection=enabled` 标签即可。你的命名空间在 lab 部署时已自动添加此标签：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc get smmr default -n "$SMCP_NS" -o jsonpath='{.status.memberStatuses}' | \
-  python3 -m json.tool 2>/dev/null | grep -A 2 "$NS" || \
-  oc get namespace "$NS" --show-labels | grep -i mesh
+oc get namespace "$NS" --show-labels | grep istio-injection
 ----
 
-Expected result：命名空间 `$NS` 出现在 member 列表，状态为 `Configured`。// UNVERIFIED
+Expected result：`istio-injection=enabled`——命名空间已就绪，sidecar 注入将在下一步 Pod 重启时自动启用。// UNVERIFIED
+
+验证 OSSM 3.x 控制平面运行状态：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get istio default -o jsonpath='{.status.state}{"\n"}'
+----
+
+Expected result：`Healthy`——OSSM 3.x 控制平面正常运行。// UNVERIFIED
 
 == 练习 5：启用 Sidecar 注入并重新部署
 
@@ -410,7 +403,6 @@ In short: `PeerAuthentication STRICT` 意味着命名空间内的所有流量都
 [source,bash,role="execute",subs="attributes+"]
 ----
 NS=$(oc whoami)-{lab_ns_suffix}
-SMCP_NS=$(oc get smcp -A --no-headers 2>/dev/null | awk '{print $1}' | head -1)
 
 oc delete peerauthentication default -n "$NS" --ignore-not-found
 oc delete destinationrule java-service-b-mtls -n "$NS" --ignore-not-found
