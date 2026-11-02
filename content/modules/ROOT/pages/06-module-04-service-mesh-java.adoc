@@ -130,6 +130,7 @@ spec:
       containers:
       - name: app
         image: docker.io/smokingwell/helloworld-java:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         env:
@@ -170,6 +171,7 @@ spec:
       containers:
       - name: app
         image: docker.io/smokingwell/helloworld-java:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         env:

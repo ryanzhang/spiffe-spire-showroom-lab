@@ -47,7 +47,7 @@ public class HelloController {
      * Calls http://{serviceName}:8080/hello via Java RestTemplate (no curl needed).
      * Returns an HTML page showing the upstream response and whether SPIFFE mTLS is active.
      */
-    @GetMapping(value = "/call/{serviceName}", produces = MediaType.TEXT_HTML_VALUE)
+    @GetMapping(value = "/call/{serviceName}")
     public ResponseEntity<String> callService(
             @PathVariable String serviceName,
             @RequestHeader(value = "X-Forwarded-Client-Cert", required = false) String myXfcc) {
