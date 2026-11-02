@@ -129,7 +129,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: quay.io/rzhang/helloworld-java:latest
+        image: docker.io/smokingwell/helloworld-java:latest
         ports:
         - containerPort: 8080
         env:
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: quay.io/rzhang/helloworld-java:latest
+        image: docker.io/smokingwell/helloworld-java:latest
         ports:
         - containerPort: 8080
         env:
@@ -200,7 +200,7 @@ Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
 
 [NOTE]
 ====
-本镜像（`quay.io/rzhang/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，源代码在仓库 `apps/helloworld-java/` 目录。接口说明：`GET /hello` 返回服务身份信息，`GET /call` 调用 `SERVICE_B_URL/hello`（演示服务间通信），`GET /health` 返回健康状态。
+本镜像（`docker.io/smokingwell/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，源代码在仓库 `apps/helloworld-java/` 目录。接口说明：`GET /hello` 返回服务身份信息，`GET /call` 调用 `SERVICE_B_URL/hello`（演示服务间通信），`GET /health` 返回健康状态。
 ====
 
 == 练习 3：验证普通 HTTP 通信（无 TLS）
