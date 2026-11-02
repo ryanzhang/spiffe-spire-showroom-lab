@@ -119,24 +119,30 @@ SPIFFE CSI Driver（`csi.spiffe.io`）挂载 SPIRE Agent 的 Workload API *socke
 
 === 工作负载注册流程
 
-. 管理员创建 `SpiffeClusterSPIFFEID` CR，指定匹配的 namespace 和 ServiceAccount
-. SPIRE Server 记录注册条目（由 spire-controller-manager 自动同步）
 . Pod 启动，init container（spiffe-helper）通过 `/spiffe-workload-api/spire-agent.sock` 调用 Workload API
-. SPIRE Agent 完成 Workload Attestation，向 spiffe-helper 返回 X.509-SVID
-. spiffe-helper 将 `svid.pem`、`svid.key`、`svid_bundle.pem` 写入共享 emptyDir
-. Sidecar 持续监听，在证书到期前（1 小时）原地更新文件
+. 若此时没有匹配的 `SpiffeClusterSPIFFEID` 注册条目，init container 返回非零退出码 → Kubernetes 进入 `Init:CrashLoopBackOff`（自动重试）
+. 管理员创建 `SpiffeClusterSPIFFEID` CR → SPIRE Server 记录条目（由 spire-controller-manager 自动同步）
+. init container 下一次重试时调用 Workload API → SPIRE Agent 完成 Workload Attestation，返回 X.509-SVID
+. spiffe-helper 将 `svid.pem`、`svid.key`、`svid_bundle.pem` 写入共享 emptyDir → init container 退出 0 → 主容器启动
+. Sidecar 持续监听，在证书到期前（1 小时）原地更新文件，无需重启 Pod
 
-[IMPORTANT]
+[NOTE]
 ====
-`SpiffeClusterSPIFFEID` 必须在 Pod **启动之前**已存在。Init container 在 Pod 启动时调用 Workload API——若此时没有匹配的注册条目，init container 将失败并触发 CrashLoopBackOff。
+*两种部署顺序均可：*
+
+* *先注册后部署*（ClusterSPIFFEID → Deployment）：init container 首次运行即成功，适合全新工作负载上线
+* *先部署后注册*（Deployment → ClusterSPIFFEID）：init container 先失败进入 `CrashLoopBackOff`，等 ClusterSPIFFEID 创建后自动恢复，**适合存量应用改造**——无需协调两个变更的时序
+
+本练习演示第二种顺序，更贴近企业实际场景。若 CrashLoopBackOff 等待时间过长，可手动触发 `oc rollout restart deploy/spiffe-demo -n "$NS"` 加速。
 ====
 
 == 学习目标
 
-* 创建 SpiffeClusterSPIFFEID 注册条目
 * 部署使用 spiffe-helper（init + sidecar）的工作负载
+* 观察无注册条目时 init container 的自然失败（`Init:CrashLoopBackOff`）
+* 创建 SpiffeClusterSPIFFEID，触发 Pod 自愈
 * 验证 X.509-SVID 文件成功写入共享卷
-* 用 openssl 检查 SVID 的 SPIFFE URI SAN
+* 用 openssl 检查 SVID 的 SPIFFE URI SAN 和有效期
 
 == 练习 1：设置你的命名空间变量
 
@@ -148,41 +154,7 @@ echo "操作命名空间：$NS"
 
 Expected result：打印 `操作命名空间：userN-{lab_ns_suffix}`。// UNVERIFIED
 
-== 练习 2：注册工作负载（先于 Pod 创建）
-
-先创建 `SpiffeClusterSPIFFEID`——这是 SPIRE 颁发 SVID 的前提。
-
-[source,bash,role="execute",subs="attributes+"]
-----
-cat <<EOF | oc apply -f -
-apiVersion: spire.spiffe.io/v1alpha1
-kind: ClusterSPIFFEID
-metadata:
-  name: $(oc whoami)-demo
-spec:
-  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
-  podSelector:
-    matchLabels:
-      app: spiffe-demo
-  namespaceSelector:
-    matchLabels:
-      kubernetes.io/metadata.name: "$NS"
-  ttl: 3600s
-EOF
-----
-
-Expected result：`clusterspiffeid.spire.spiffe.io/userN-demo created`。// UNVERIFIED
-
-验证注册条目已被 SPIRE Controller Manager 处理（通常 5-10 秒）：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-oc get clusterspiffeid $(oc whoami)-demo -o jsonpath='{.status}' | python3 -m json.tool
-----
-
-Expected result：`status` 字段中出现 `stats` 对象，`entryFailures: 0`。// UNVERIFIED
-
-== 练习 3：创建 spiffe-helper 配置
+== 练习 2：创建 spiffe-helper 配置
 
 创建 ConfigMap，包含 `helper.conf`——spiffe-helper 读取它来获知 socket 路径、证书输出目录和文件名。
 
@@ -213,11 +185,9 @@ spiffe-helper 通过 `-config` 参数读取 `.conf` 文件。使用 ConfigMap �
 `cert_dir` 必须与 `emptyDir` 卷的挂载路径完全一致——init container、sidecar 和主应用都挂载同一个 emptyDir，才能共享文件。
 ====
 
-== 练习 4：部署工作负载（init + sidecar 模式）
+== 练习 3：部署工作负载（ClusterSPIFFEID 尚未创建）
 
-// UNVERIFIED — 替换 <version> 为 1.1
-
-部署带有 spiffe-helper 的工作负载，同时创建 ServiceAccount：
+部署带有 spiffe-helper 的工作负载，同时创建 ServiceAccount。此时 ClusterSPIFFEID 还不存在——init container 将会失败，这是预期行为：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -289,9 +259,59 @@ spec:
 EOF
 ----
 
-Expected result：`serviceaccount/spiffe-demo-sa unchanged` 和 `deployment.apps/spiffe-demo created`。// UNVERIFIED
+Expected result：`serviceaccount/spiffe-demo-sa created/unchanged` 和 `deployment.apps/spiffe-demo created`。// UNVERIFIED
 
-等待 Deployment 就绪（init container 完成、sidecar 启动）：
+== 练习 4：观察 Init:CrashLoopBackOff（负向控制）
+
+等待约 30 秒，然后检查 Pod 状态——此时 ClusterSPIFFEID 尚不存在，init container 调用 Workload API 失败：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc get pods -n "$NS" -l app=spiffe-demo
+----
+
+Expected result：
+----
+NAME                           READY   STATUS                  RESTARTS   AGE
+spiffe-demo-xxxxx              0/2     Init:CrashLoopBackOff   2          45s
+----
+`Init:CrashLoopBackOff` 是预期行为——init container 找不到匹配的注册条目，Kubernetes 按指数退避自动重试。主容器尚未启动，共享 emptyDir 为空。
+
+In short: 无 ClusterSPIFFEID = 无 SVID = init container 失败，这正是"零信任默认拒绝"的体现。
+
+== 练习 5：注册工作负载（创建 ClusterSPIFFEID）
+
+现在创建 `SpiffeClusterSPIFFEID`——SPIRE Controller Manager 将在秒级内同步注册条目：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: $(oc whoami)-demo
+spec:
+  spiffeIDTemplate: "spiffe://{trust_domain}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: spiffe-demo
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: "$NS"
+  ttl: 3600s
+EOF
+----
+
+Expected result：`clusterspiffeid.spire.spiffe.io/userN-demo created`。// UNVERIFIED
+
+若 CrashLoopBackOff 的退避等待时间较长（最多 5 分钟），可手动触发快速重启：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+oc rollout restart deploy/spiffe-demo -n "$NS"
+----
+
+等待 Deployment 自愈（init container 在下一次重试时成功）：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -300,7 +320,7 @@ oc rollout status deploy/spiffe-demo -n "$NS" --timeout=120s
 
 Expected result：`deployment "spiffe-demo" successfully rolled out`。// UNVERIFIED
 
-== 练习 5：验证 SVID 文件已写入
+== 练习 6：验证 SVID 文件已写入
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -317,7 +337,7 @@ svid_bundle.pem — Trust Bundle 根证书（与 spire-bundle ConfigMap 内容�
 
 In short: 证书来自 SPIRE，身份来自 Kubernetes 工作负载元数据——没有任何 Secret 或手工颁发操作。
 
-== 练习 6：检查 X.509-SVID 证书结构
+== 练习 7：检查 X.509-SVID 证书结构
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -351,7 +371,8 @@ In short: SVID 的 SAN = 工作负载的身份证号，来自 Kubernetes 元数�
 * SPIFFE CSI Driver 挂载的是什么？为什么它不直接写证书文件？
 * spiffe-helper 的 init container 和 sidecar 各自的职责是什么？
 * `svid.pem` 和 `svid_bundle.pem` 的内容分别是什么？两者有什么关系？
-* 为什么 ClusterSPIFFEID 必须在 Pod 启动之前创建？
+* 部署 Deployment 但未创建 ClusterSPIFFEID 时，Pod 处于什么状态？创建后为什么能自动恢复？
+* 存量应用改造和全新应用上线，哪种场景更适合"先部署后注册"的顺序？
 
 .参考答案
 [%collapsible]
@@ -359,7 +380,8 @@ In short: SVID 的 SAN = 工作负载的身份证号，来自 Kubernetes 元数�
 * *SPIFFE CSI Driver*：挂载 SPIRE Agent 的 Workload API socket（`spire-agent.sock`），供 SPIFFE-aware 应用直接调用。CSI Driver 不写证书文件——因为它运行在 DaemonSet 中，调用 Workload API 时使用自己的进程身份，而非目标 Pod 的身份，Agent 不会为它颁发目标 Pod 的 SVID。
 * *Init container*：一次性写入初始证书文件（`-daemon-mode=false`），运行在 Pod 内部，使用 Pod 自己的身份调用 Workload API，成功后退出。*Sidecar*：持续运行（daemon mode），监听 Workload API 的 SVID 轮换事件，在证书到期前原地更新文件。
 * *svid.pem*：工作负载的 X.509 证书，含 SPIFFE URI SAN。*svid_bundle.pem*：SPIRE CA 根证书，与 `spire-bundle` ConfigMap 内容相同，mTLS 对端用它验证 SVID 的合法性。
-* ClusterSPIFFEID 注册条目不存在时，Workload API 没有匹配条目，init container 无法获取 SVID，会以非零退出码退出，触发 Pod 的 `Init:CrashLoopBackOff`。
+* 无 ClusterSPIFFEID 时，init container 调用 Workload API 失败 → 非零退出码 → `Init:CrashLoopBackOff`。Kubernetes 按指数退避自动重试。创建 ClusterSPIFFEID 后，SPIRE Controller Manager 在秒级同步注册条目，下一次 init container 重试（或手动 rollout restart）即可成功，Deployment 自愈。
+* *存量应用改造*更适合"先部署后注册"：运维团队先将 spiffe-helper 加入现有 Deployment（rolling update），再由安全团队创建 ClusterSPIFFEID，两个变更可独立进行，无需精确协调时序。*全新应用*"先注册后部署"更简洁——避免短暂的 CrashLoopBackOff。
 ====
 
 Proceed to xref:05-module-03-mtls-communication.adoc[模块 3：mTLS 微服务通信].
