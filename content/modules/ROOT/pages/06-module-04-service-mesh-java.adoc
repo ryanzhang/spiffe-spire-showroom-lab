@@ -215,8 +215,6 @@ echo "端口转发已启动，在浏览器打开：http://localhost:8080/call/ja
 
 Expected result：浏览器打开 `http://localhost:8080/call/java-service-b`，看到：
 
-image::module4-before-spiffe.png[改造前状态：红色 ⚠️ 普通 HTTP（无 SPIFFE）]
-
 * 顶部状态横幅显示 `⚠️ 普通 HTTP（无 SPIFFE）`（红色）
 * Before/After 对比卡片说明当前状态和目标状态
 * 来自 java-service-b 的实际响应（JSON）
