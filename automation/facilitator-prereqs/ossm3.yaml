@@ -36,3 +36,21 @@ spec:
     type: InPlace
     inactiveRevisionDeletionGracePeriodSeconds: 30
   version: v1.31-latest
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-cni
+  labels:
+    app.kubernetes.io/managed-by: facilitator
+---
+# IstioCNI DaemonSet installs the CNI plugin on all nodes (required).
+# Must be applied after the Istio CR; namespace istio-cni must exist first.
+# Verified 2026-11-02: sailoperator.io/v1, v1.31-latest
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata:
+  name: default
+spec:
+  namespace: istio-cni
+  version: v1.31-latest
