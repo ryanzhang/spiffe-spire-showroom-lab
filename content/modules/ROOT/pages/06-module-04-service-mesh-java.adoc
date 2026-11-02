@@ -203,50 +203,38 @@ Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
 本镜像（`docker.io/smokingwell/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，源代码在仓库 `apps/helloworld-java/` 目录。接口说明：`GET /hello` 返回服务身份信息，`GET /call` 调用 `SERVICE_B_URL/hello`（演示服务间通信），`GET /health` 返回健康状态。
 ====
 
-== 练习 3：验证普通 HTTP 通信（无 TLS）
+== 练习 3：在浏览器中验证服务通信状态
 
-从 service-a 直接调用 service-b `/hello` 端点，确认普通 HTTP 通信：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-oc exec -n "$NS" deploy/java-service-a -c app -- \
-  curl -s http://java-service-b:8080/hello | python3 -m json.tool
-----
-
-Expected result：
-----
-{
-    "message": "Hello from java-service-b!",
-    "service": "java-service-b",
-    "host": "java-service-b-xxxxx",
-    "timestamp": "2026-11-02T..."
-}
-----
-这是普通 HTTP 返回的 JSON 响应——无 TLS，无身份验证。// UNVERIFIED
-
-通过 service-a 的 `/call` 端点演示服务间调用（service-a 调 service-b）：
+通过 `oc port-forward` 将 service-a 的端口暴露到本地，然后在浏览器打开可视化验证页面：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" deploy/java-service-a -c app -- \
-  curl -s http://localhost:8080/call | python3 -m json.tool
+oc port-forward -n "$NS" deploy/java-service-a 8080:8080 &
+echo "端口转发已启动，在浏览器打开：http://localhost:8080/call/java-service-b"
 ----
 
-Expected result：
-----
-{
-    "caller": "java-service-a",
-    "status": "success",
-    "protocol": "HTTP (pre-SPIFFE) or mTLS (post-OSSM)",
-    "upstream": {
-        "message": "Hello from java-service-b!",
-        ...
-    }
-}
-----
-`status: success` 表明 service-a 成功调用了 service-b，此时为明文 HTTP。// UNVERIFIED
+Expected result：浏览器打开 `http://localhost:8080/call/java-service-b`，看到：
 
-In short: 此时两个"Spring Boot 服务"之间是明文 HTTP，任何人都可以拦截或伪造请求。
+image::module4-before-spiffe.png[改造前状态：红色 ⚠️ 普通 HTTP（无 SPIFFE）]
+
+* 顶部状态横幅显示 `⚠️ 普通 HTTP（无 SPIFFE）`（红色）
+* Before/After 对比卡片说明当前状态和目标状态
+* 来自 java-service-b 的实际响应（JSON）
+* `mtls_active: false`——此时无 SPIFFE 身份验证 // UNVERIFIED
+
+[TIP]
+====
+完成后续练习（接入 Service Mesh + 应用 PeerAuthentication）后，**刷新此页面**，横幅会自动变为 `🔒 SPIFFE mTLS 已启用`（绿色），SPIFFE ID 表格也会显示双方的 `spiffe://` URI——Java 代码始终未做任何修改。
+====
+
+结束观察后停止端口转发：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+kill %1 2>/dev/null; echo "端口转发已停止"
+----
+
+In short: 此时两个 Java 服务之间是明文 HTTP，刷新页面后可直观看到 SPIFFE 启用前后的区别。
 
 == 练习 4：加入 Service Mesh
 
@@ -353,20 +341,29 @@ oc exec -n "$NS" deploy/java-service-a -c app -- \
 
 Expected result：仍然返回正常响应——Java 代码无任何变化，但底层已经是 mTLS。// UNVERIFIED
 
-验证 Envoy 使用的是 SPIFFE SVID（查看 istio-proxy 容器的证书）：
+**在浏览器中直接看到 SPIFFE 已启用：**
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc exec -n "$NS" deploy/java-service-b -c istio-proxy -- \
-  openssl s_client -connect localhost:15020 -showcerts 2>/dev/null | \
-  grep -E "subject|issuer|URI:" | head -5 2>/dev/null || \
-  oc exec -n "$NS" deploy/java-service-b -c istio-proxy -- \
-    pilot-agent request GET certs 2>/dev/null | python3 -m json.tool | grep -E "spiffe|trust" | head -5
+oc port-forward -n "$NS" deploy/java-service-a 8080:8080 &
+echo "在浏览器打开：http://localhost:8080/call/java-service-b"
 ----
 
-Expected result：证书中包含 `spiffe://` URI，表明 Envoy 使用 SPIRE 颁发的 SVID 进行 mTLS 认证。// UNVERIFIED
+Expected result（刷新之前练习 3 的页面）：
 
-In short: Java 服务代码零改动，mTLS 和 SPIFFE 身份验证已完全由 OSSM + SPIRE 透明处理。
+* 状态横幅变为 `🔒 SPIFFE mTLS 已启用`（绿色）
+* SPIFFE 身份信息表格显示双方的 `spiffe://{trust_domain}/ns/.../sa/...`
+* `mtls_active: true`
+* Java 业务代码 **零改动**，所有变化由 Envoy + SPIRE 透明处理 // UNVERIFIED
+
+停止端口转发：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+kill %1 2>/dev/null; echo "端口转发已停止"
+----
+
+In short: 同一个 Java 服务，同一行代码，浏览器页面从红色变绿色——这就是 Service Mesh + SPIFFE 带来的零代码改动零信任通信。
 
 == 练习 8：负向控制 — 无 Sidecar 的访问被拒绝
 
