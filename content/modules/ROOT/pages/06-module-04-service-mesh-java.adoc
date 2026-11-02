@@ -189,7 +189,39 @@ spec:
 EOF
 ----
 
-Expected result：4 个资源创建（2 个 Deployment + 2 个 Service）。// UNVERIFIED
+创建 OpenShift Route，让浏览器可以直接访问 service-a（带 TLS edge termination）：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+cat <<EOF | oc apply -n "$NS" -f -
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: java-service-a
+spec:
+  to:
+    kind: Service
+    name: java-service-a
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+EOF
+----
+
+Expected result：`route.route.openshift.io/java-service-a created`。// UNVERIFIED
+
+获取 Route URL：
+
+[source,bash,role="execute",subs="attributes+"]
+----
+ROUTE_URL=$(oc get route java-service-a -n "$NS" -o jsonpath='{.spec.host}')
+echo "服务 URL：https://$ROUTE_URL"
+echo "验证页面：https://$ROUTE_URL/call/java-service-b"
+----
+
+Expected result：打印 `https://java-service-a-<NS>.{cluster_domain}`。// UNVERIFIED
 
 [source,bash,role="execute",subs="attributes+"]
 ----
@@ -200,37 +232,34 @@ Expected result：两个 Deployment 都成功滚出。// UNVERIFIED
 
 [NOTE]
 ====
-本镜像（`docker.io/smokingwell/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，源代码在仓库 `apps/helloworld-java/` 目录。接口说明：`GET /hello` 返回服务身份信息，`GET /call` 调用 `SERVICE_B_URL/hello`（演示服务间通信），`GET /health` 返回健康状态。
+本镜像（`docker.io/smokingwell/helloworld-java:latest`）是为本实验构建的 Spring Boot REST 服务，基于 `registry.access.redhat.com/ubi9/openjdk-21-runtime`（Red Hat 官方 UBI9 基础镜像）。源代码在仓库 `apps/helloworld-java/` 目录。接口说明：
+
+* `GET /hello` — JSON：服务身份 + mTLS 状态
+* `GET /call/{serviceName}` — HTML：调用上游服务并展示 SPIFFE 教学页面
+* `GET /health` — 健康检查
 ====
 
-== 练习 3：在浏览器中验证服务通信状态
+== 练习 3：在浏览器中验证服务通信状态（改造前基准）
 
-通过 `oc port-forward` 将 service-a 的端口暴露到本地，然后在浏览器打开可视化验证页面：
+获取 Route URL 并在浏览器打开验证页面：
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc port-forward -n "$NS" deploy/java-service-a 8080:8080 &
-echo "端口转发已启动，在浏览器打开：http://localhost:8080/call/java-service-b"
+ROUTE_URL=$(oc get route java-service-a -n "$NS" -o jsonpath='{.spec.host}')
+echo "在浏览器打开：https://$ROUTE_URL/call/java-service-b"
 ----
 
-Expected result：浏览器打开 `http://localhost:8080/call/java-service-b`，看到：
+在浏览器中打开输出的 URL。Expected result：
 
-* 顶部状态横幅显示 `⚠️ 普通 HTTP（无 SPIFFE）`（红色）
-* Before/After 对比卡片说明当前状态和目标状态
-* 来自 java-service-b 的实际响应（JSON）
-* `mtls_active: false`——此时无 SPIFFE 身份验证 // UNVERIFIED
+* 顶部状态横幅显示 `⚠️ 普通 HTTP（无 SPIFFE）`（红色背景）
+* Before/After 对比卡片说明当前状态与目标状态的区别
+* 来自 java-service-b 的实际 JSON 响应（`mtls_active: false`）
+* 底部提示：「完成 Service Mesh 配置后刷新此页」 // UNVERIFIED
 
 [TIP]
 ====
-完成后续练习（接入 Service Mesh + 应用 PeerAuthentication）后，**刷新此页面**，横幅会自动变为 `🔒 SPIFFE mTLS 已启用`（绿色），SPIFFE ID 表格也会显示双方的 `spiffe://` URI——Java 代码始终未做任何修改。
+完成后续练习（接入 Service Mesh + 应用 PeerAuthentication STRICT）后，**刷新此页面**，横幅会自动变为 `🔒 SPIFFE mTLS 已启用`（绿色），并显示双方 `spiffe://` SVID——Java 代码始终未做任何修改。
 ====
-
-结束观察后停止端口转发：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-kill %1 2>/dev/null; echo "端口转发已停止"
-----
 
 In short: 此时两个 Java 服务之间是明文 HTTP，刷新页面后可直观看到 SPIFFE 启用前后的区别。
 
@@ -343,25 +372,18 @@ Expected result：仍然返回正常响应——Java 代码无任何变化，但
 
 [source,bash,role="execute",subs="attributes+"]
 ----
-oc port-forward -n "$NS" deploy/java-service-a 8080:8080 &
-echo "在浏览器打开：http://localhost:8080/call/java-service-b"
+ROUTE_URL=$(oc get route java-service-a -n "$NS" -o jsonpath='{.spec.host}')
+echo "刷新此页面：https://$ROUTE_URL/call/java-service-b"
 ----
 
-Expected result（刷新之前练习 3 的页面）：
+**刷新之前练习 3 已打开的浏览器页面**。Expected result：
 
-* 状态横幅变为 `🔒 SPIFFE mTLS 已启用`（绿色）
+* 状态横幅变为 `🔒 SPIFFE mTLS 已启用`（绿色背景）
 * SPIFFE 身份信息表格显示双方的 `spiffe://{trust_domain}/ns/.../sa/...`
 * `mtls_active: true`
 * Java 业务代码 **零改动**，所有变化由 Envoy + SPIRE 透明处理 // UNVERIFIED
 
-停止端口转发：
-
-[source,bash,role="execute",subs="attributes+"]
-----
-kill %1 2>/dev/null; echo "端口转发已停止"
-----
-
-In short: 同一个 Java 服务，同一行代码，浏览器页面从红色变绿色——这就是 Service Mesh + SPIFFE 带来的零代码改动零信任通信。
+In short: 同一个 Java 服务，同一行代码，同一个 URL——浏览器页面从红色变绿色，这就是 Service Mesh + SPIFFE 带来的零代码改动零信任通信。
 
 == 练习 8：负向控制 — 无 Sidecar 的访问被拒绝
 
@@ -392,6 +414,7 @@ oc delete peerauthentication default -n "$NS" --ignore-not-found
 oc delete destinationrule java-service-b-mtls -n "$NS" --ignore-not-found
 oc delete deployment java-service-a java-service-b -n "$NS" --ignore-not-found
 oc delete service java-service-a java-service-b -n "$NS" --ignore-not-found
+oc delete route java-service-a -n "$NS" --ignore-not-found
 
 echo "模块 4 清理完成"
 echo "（命名空间 $NS 仍在 Service Mesh 中，如需彻底移除请联系 Facilitator）"
